@@ -117,12 +117,12 @@ user_input → skill_router → context_retriever → skill_executor → formatt
 - [x] main.py 中接入 graph.invoke() 调用
 - [x] 3 个 Skill 自动路由 + 手动 --skill 指定均验证通过
 
-### 阶段 2: Tools 层 (预计 1.5 天)
-- [ ] file_reader: 读取文件内容，支持路径和行范围
-- [ ] code_search: 基于 ripgrep 的代码搜索
-- [ ] tree_parser: Tree-sitter 解析代码结构 (类、方法、imports)
-- [ ] vector_search: FAISS 向量化 + 语义检索 (可后补)
-- [ ] 所有工具通过 @tool 装饰器注册
+### 阶段 2: Tools 层 ✅ 已完成
+- [x] file_reader: read_file / list_directory / read_key_files (路径安全校验+行号+截断)
+- [x] code_search: search_code / search_symbol / search_references (ripgrep 优先，grep 降级)
+- [x] tree_parser: parse_file_structure / extract_method_body / find_method_calls (tree-sitter + 正则降级)
+- [x] vector_search: build_index / semantic_search (FAISS + 简易 TF-IDF，懒加载+缓存)
+- [x] 所有 11 个工具通过 @tool 装饰器注册，tools/__init__.py 统一导出 ALL_TOOLS
 
 ### 阶段 3: 3 个 Skills 实现 (预计 3 天)
 - [ ] skills/base.py: Skill 基类 (execute + get_prompt_template)
