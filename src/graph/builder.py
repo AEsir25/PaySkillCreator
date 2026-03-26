@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
 from src.graph.nodes import (
@@ -25,8 +26,12 @@ def _should_review(state: AgentState) -> str:
     return END
 
 
-def build_graph() -> StateGraph:
-    """构建并编译 PaySkillCreator 的 StateGraph。"""
+def build_graph(checkpointer: bool = True) -> StateGraph:
+    """构建并编译 PaySkillCreator 的 StateGraph。
+
+    Args:
+        checkpointer: 是否启用 MemorySaver（human_review 的 interrupt 需要）
+    """
     graph = StateGraph(AgentState)
 
     graph.add_node("skill_router", skill_router)
@@ -46,4 +51,5 @@ def build_graph() -> StateGraph:
     })
     graph.add_edge("human_review", END)
 
-    return graph.compile()
+    memory = MemorySaver() if checkpointer else None
+    return graph.compile(checkpointer=memory)

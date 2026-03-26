@@ -138,10 +138,11 @@ user_input → skill_router → context_retriever → skill_executor → formatt
 - [x] graph/nodes.py: skill_router 接入 LLM structured output，关键词作为 fallback
 - [x] 路由准确率验证: 7/7 全部正确
 
-### 阶段 5: Retriever + Formatter (预计 1 天)
-- [ ] context_retriever: 根据 skill_type 预检索上下文
-- [ ] formatter: Pydantic → Markdown 报告
-- [ ] human_review: interrupt_before 机制
+### 阶段 5: Retriever + Formatter ✅ 已完成
+- [x] context_retriever: tiktoken 上下文截断 + semantic_search 接入 + 关键词提取优化
+- [x] formatter: 基于 Pydantic Schema 格式化 (field description 作为 label) + 元信息
+- [x] MemorySaver checkpointer 接入，human_review interrupt 可用
+- [x] metadata 流转: 路由原因 / 模型名 / 执行耗时
 
 ### 阶段 6: CLI + 端到端测试 (预计 1 天)
 - [ ] main.py 完整接入 graph

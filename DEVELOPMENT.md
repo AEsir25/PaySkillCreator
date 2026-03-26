@@ -91,6 +91,6 @@ evals/               # 评估用例
 - [x] 阶段 2: Tools 层
 - [x] 阶段 3: Skills 实现
 - [x] 阶段 4: Skill Router
-- [ ] 阶段 5: Retriever + Formatter
+- [x] 阶段 5: Retriever + Formatter
 - [ ] 阶段 6: 端到端测试
 - [ ] 阶段 7: 评估优化

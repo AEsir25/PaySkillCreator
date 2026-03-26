@@ -34,3 +34,6 @@ class AgentState(TypedDict, total=False):
 
     # --- 错误信息 ---
     error: str | None
+
+    # --- 元信息（路由原因、耗时、模型等） ---
+    metadata: dict

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Optional
 
 import typer
@@ -71,18 +72,22 @@ def run(
         )
     )
 
+    need_review = review or settings.need_human_review
     initial_state = {
         "repo_path": settings.target_repo_path,
         "user_query": query,
         "requested_skill": skill,
-        "need_review": review or settings.need_human_review,
+        "need_review": need_review,
+        "metadata": {},
     }
 
     console.print("[dim]正在构建分析工作流...[/dim]")
-    compiled_graph = build_graph()
+    compiled_graph = build_graph(checkpointer=need_review)
+    thread_id = str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}} if need_review else {}
 
     console.print("[dim]正在执行分析...[/dim]\n")
-    final_state = compiled_graph.invoke(initial_state)
+    final_state = compiled_graph.invoke(initial_state, config=config)
 
     output = final_state.get("formatted_output", "")
     if output:
@@ -91,7 +96,9 @@ def run(
         console.print("[yellow]未产生输出结果。[/yellow]")
 
     skill_used = final_state.get("skill_type", "unknown")
-    console.print(f"\n[dim]Skill: {skill_used} | 审核: {'是' if review else '否'}[/dim]")
+    metadata = final_state.get("metadata", {})
+    elapsed = metadata.get("skill_elapsed_ms", "?")
+    console.print(f"\n[dim]Skill: {skill_used} | 耗时: {elapsed}ms | 审核: {'是' if need_review else '否'}[/dim]")
 
 
 @app.command()

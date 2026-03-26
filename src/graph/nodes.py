@@ -7,12 +7,52 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
+import tiktoken
 from langgraph.types import interrupt
 
 from src.state import VALID_SKILLS, AgentState
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Token 估算
+# ---------------------------------------------------------------------------
+
+_ENCODING: tiktoken.Encoding | None = None
+
+
+def _get_encoding() -> tiktoken.Encoding:
+    global _ENCODING
+    if _ENCODING is None:
+        try:
+            _ENCODING = tiktoken.encoding_for_model("gpt-4o")
+        except Exception:
+            _ENCODING = tiktoken.get_encoding("cl100k_base")
+    return _ENCODING
+
+
+def _estimate_tokens(text: str) -> int:
+    return len(_get_encoding().encode(text))
+
+
+def _truncate_context(parts: list[str], max_tokens: int) -> list[str]:
+    """按顺序保留上下文，超过 max_tokens 时截断。"""
+    result: list[str] = []
+    used = 0
+    for part in parts:
+        tokens = _estimate_tokens(part)
+        if used + tokens > max_tokens:
+            remaining = max_tokens - used
+            if remaining > 200:
+                enc = _get_encoding()
+                encoded = enc.encode(part)[:remaining]
+                result.append(enc.decode(encoded) + "\n... (上下文已截断)")
+            break
+        result.append(part)
+        used += tokens
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -25,20 +65,28 @@ def skill_router(state: AgentState) -> dict:
     优先级: 用户指定 > LLM 意图识别 > 关键词 fallback
     """
     requested = state.get("requested_skill")
+    metadata = dict(state.get("metadata", {}))
+
     if requested and requested in VALID_SKILLS:
         logger.info("使用用户指定的 Skill: %s", requested)
-        return {"skill_type": requested}
+        metadata["router_method"] = "user_specified"
+        metadata["router_reason"] = f"用户通过 --skill 指定: {requested}"
+        return {"skill_type": requested, "metadata": metadata}
 
     query = state.get("user_query", "")
 
     skill, reason = _llm_route(query)
     if skill:
         logger.info("LLM 路由: %s (原因: %s)", skill, reason)
-        return {"skill_type": skill}
+        metadata["router_method"] = "llm"
+        metadata["router_reason"] = reason
+        return {"skill_type": skill, "metadata": metadata}
 
     skill = _keyword_route(query)
     logger.info("关键词 fallback 路由: %s", skill)
-    return {"skill_type": skill}
+    metadata["router_method"] = "keyword_fallback"
+    metadata["router_reason"] = f"LLM 路由失败，关键词匹配: {skill}"
+    return {"skill_type": skill, "metadata": metadata}
 
 
 def _llm_route(query: str) -> tuple[str | None, str]:
@@ -77,49 +125,91 @@ def _keyword_route(query: str) -> str:
 # ---------------------------------------------------------------------------
 
 def context_retriever(state: AgentState) -> dict:
-    """根据 skill_type 预检索相关仓库上下文。
-
-    Skill 1/3 在此步收集上下文，Skill 2 的 ReAct Agent 在执行时自主检索。
-    """
+    """根据 skill_type 预检索相关仓库上下文，控制总 token 量。"""
+    from src.config import get_settings
     from src.tools.code_search import search_code
     from src.tools.file_reader import list_directory, read_key_files
+    from src.tools.vector_search import semantic_search
 
     skill_type = state.get("skill_type", "repo_background")
     repo_path = state.get("repo_path", "")
     query = state.get("user_query", "")
+    settings = get_settings()
+    max_tokens = settings.max_context_tokens
 
-    logger.info("检索上下文: skill=%s, repo=%s", skill_type, repo_path)
+    logger.info("检索上下文: skill=%s, repo=%s, max_tokens=%d", skill_type, repo_path, max_tokens)
 
-    context: list[str] = []
+    parts: list[str] = []
 
     if skill_type == "repo_background":
-        context.append(list_directory.invoke({
+        parts.append(list_directory.invoke({
             "dir_path": repo_path, "repo_path": repo_path, "max_depth": 3,
         }))
-        context.append(read_key_files.invoke({"repo_path": repo_path}))
+        parts.append(read_key_files.invoke({"repo_path": repo_path}))
 
     elif skill_type == "chain_analysis":
-        # ReAct Agent 在 skill_executor 中自主检索，此处做轻量预搜索
-        context.append(list_directory.invoke({
+        parts.append(list_directory.invoke({
             "dir_path": repo_path, "repo_path": repo_path, "max_depth": 2,
         }))
-        r = search_code.invoke({
-            "pattern": query[:50], "repo_path": repo_path, "max_results": 10,
+        keywords = _extract_search_terms(query)
+        for kw in keywords[:2]:
+            r = search_code.invoke({
+                "pattern": kw, "repo_path": repo_path, "max_results": 10,
+            })
+            if "未找到" not in r:
+                parts.append(r)
+        sem = semantic_search.invoke({
+            "query": query, "repo_path": repo_path, "top_k": 3,
         })
-        context.append(r)
+        if "未找到" not in sem:
+            parts.append(sem)
 
     elif skill_type == "plan_suggestion":
-        context.append(list_directory.invoke({
+        parts.append(list_directory.invoke({
             "dir_path": repo_path, "repo_path": repo_path, "max_depth": 3,
         }))
-        context.append(read_key_files.invoke({"repo_path": repo_path}))
-        r = search_code.invoke({
-            "pattern": query[:50], "repo_path": repo_path, "max_results": 10,
+        parts.append(read_key_files.invoke({"repo_path": repo_path}))
+        keywords = _extract_search_terms(query)
+        for kw in keywords[:2]:
+            r = search_code.invoke({
+                "pattern": kw, "repo_path": repo_path, "max_results": 10,
+            })
+            if "未找到" not in r:
+                parts.append(r)
+        sem = semantic_search.invoke({
+            "query": query, "repo_path": repo_path, "top_k": 3,
         })
-        context.append(r)
+        if "未找到" not in sem:
+            parts.append(sem)
 
-    logger.info("检索完成: %d 段上下文", len(context))
+    context = _truncate_context(parts, max_tokens)
+    total_tokens = sum(_estimate_tokens(c) for c in context)
+    logger.info("检索完成: %d 段上下文, ~%d tokens", len(context), total_tokens)
     return {"retrieved_context": context}
+
+
+def _extract_search_terms(query: str) -> list[str]:
+    """从用户问题中提取可用于代码搜索的关键词。"""
+    import re
+
+    terms: list[str] = []
+    for m in re.finditer(r"[A-Z][a-z]+(?:[A-Z][a-z]+)+", query):
+        terms.append(m.group())
+    for m in re.finditer(r"[a-zA-Z_]\w{3,}", query):
+        w = m.group()
+        if w not in terms and w.lower() not in _SEARCH_STOP_WORDS:
+            terms.append(w)
+    if not terms:
+        for m in re.finditer(r"[\u4e00-\u9fff]{2,4}", query):
+            terms.append(m.group())
+    return terms[:5]
+
+
+_SEARCH_STOP_WORDS = {
+    "请", "分析", "帮我", "看看", "什么", "做了", "怎么", "方法", "接口",
+    "the", "this", "that", "with", "from", "what", "does", "please",
+    "analyze", "method", "function", "class",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +218,7 @@ def context_retriever(state: AgentState) -> dict:
 
 def skill_executor(state: AgentState) -> dict:
     """调用对应 Skill 执行分析。"""
-    from src.config import get_llm
+    from src.config import get_llm, get_settings
     from src.skills.chain_analysis import ChainAnalysisSkill
     from src.skills.plan_suggestion import PlanSuggestionSkill
     from src.skills.repo_background import RepoBackgroundSkill
@@ -137,6 +227,7 @@ def skill_executor(state: AgentState) -> dict:
     repo_path = state.get("repo_path", "")
     query = state.get("user_query", "")
     context = state.get("retrieved_context", [])
+    metadata = dict(state.get("metadata", {}))
 
     logger.info("执行 Skill: %s", skill_type)
 
@@ -151,24 +242,40 @@ def skill_executor(state: AgentState) -> dict:
         return {
             "skill_result": {},
             "error": f"未知的 Skill 类型: {skill_type}",
+            "metadata": metadata,
         }
 
     try:
-        llm = get_llm()
+        settings = get_settings()
+        llm = get_llm(settings)
+        metadata["model"] = settings.llm.model_name
+
+        t0 = time.time()
         skill = skill_cls(llm=llm, repo_path=repo_path)
         result = skill.execute(query, context)
-        return {"skill_result": result}
+        elapsed_ms = int((time.time() - t0) * 1000)
+
+        metadata["skill_elapsed_ms"] = elapsed_ms
+        logger.info("Skill 执行完成: %d ms", elapsed_ms)
+        return {"skill_result": result, "metadata": metadata}
     except Exception as e:
         logger.exception("Skill 执行失败: %s", e)
         return {
             "skill_result": {},
             "error": f"Skill 执行失败: {e}",
+            "metadata": metadata,
         }
 
 
 # ---------------------------------------------------------------------------
-# Node 4: 格式化输出
+# Node 4: 格式化输出（基于 Pydantic Schema）
 # ---------------------------------------------------------------------------
+
+from src.schemas.output import (
+    ChainAnalysisOutput,
+    PlanSuggestionOutput,
+    RepoBackgroundOutput,
+)
 
 _SKILL_TITLES: dict[str, str] = {
     "repo_background": "仓库背景知识分析",
@@ -176,32 +283,20 @@ _SKILL_TITLES: dict[str, str] = {
     "plan_suggestion": "需求方案建议",
 }
 
-_FIELD_LABELS: dict[str, str] = {
-    "overview": "概述",
-    "core_modules": "核心模块",
-    "key_directories": "关键目录",
-    "entry_points": "入口位置",
-    "config_extension_points": "配置与扩展点",
-    "entry_point": "入口点",
-    "call_chain": "调用链",
-    "key_branches": "关键分支",
-    "dependencies": "依赖模块",
-    "risks": "风险点",
-    "requirement_understanding": "需求理解",
-    "candidate_changes": "候选改动点",
-    "recommended_path": "推荐实现路径",
-    "impact_scope": "影响范围",
-    "risk_analysis": "风险分析",
-    "test_suggestions": "验证与测试建议",
+_SCHEMA_MAP: dict[str, type] = {
+    "repo_background": RepoBackgroundOutput,
+    "chain_analysis": ChainAnalysisOutput,
+    "plan_suggestion": PlanSuggestionOutput,
 }
 
 
 def formatter(state: AgentState) -> dict:
-    """将 skill_result 格式化为 Markdown 报告。"""
+    """将 skill_result 基于 Pydantic Schema 格式化为 Markdown 报告。"""
     skill_type = state.get("skill_type", "repo_background")
     result = state.get("skill_result", {})
     error = state.get("error")
     query = state.get("user_query", "")
+    metadata = state.get("metadata", {})
 
     title = _SKILL_TITLES.get(skill_type, "分析结果")
 
@@ -211,21 +306,49 @@ def formatter(state: AgentState) -> dict:
     if error:
         lines.extend([f"> **错误**: {error}", ""])
 
-    for key, value in result.items():
-        label = _FIELD_LABELS.get(key, key.replace("_", " ").title())
+    if result:
+        schema = _SCHEMA_MAP.get(skill_type)
+        if schema:
+            try:
+                output = schema.model_validate(result)
+                lines.extend(_format_pydantic(output))
+            except Exception:
+                lines.extend(_format_dict_fallback(result))
+        else:
+            lines.extend(_format_dict_fallback(result))
+
+    if metadata:
+        lines.append("---")
+        lines.append("")
+        meta_parts: list[str] = []
+        if metadata.get("router_method"):
+            meta_parts.append(f"路由: {metadata['router_method']}")
+        if metadata.get("model"):
+            meta_parts.append(f"模型: {metadata['model']}")
+        if metadata.get("skill_elapsed_ms"):
+            meta_parts.append(f"耗时: {metadata['skill_elapsed_ms']}ms")
+        if meta_parts:
+            lines.append(f"> {' | '.join(meta_parts)}")
+        lines.append("")
+
+    formatted = "\n".join(lines)
+    logger.info("格式化完成, 输出长度: %d chars", len(formatted))
+    return {"formatted_output": formatted}
+
+
+def _format_pydantic(output: object) -> list[str]:
+    """基于 Pydantic model 的 field info 格式化。"""
+    lines: list[str] = []
+    for field_name, field_info in output.model_fields.items():
+        value = getattr(output, field_name)
+        label = field_info.description or field_name.replace("_", " ").title()
         lines.append(f"## {label}")
         lines.append("")
 
         if isinstance(value, list):
             for item in value:
-                if isinstance(item, dict):
-                    if "name" in item and "responsibility" in item:
-                        lines.append(f"- **{item['name']}** (`{item.get('path', '')}`): {item['responsibility']}")
-                    elif "caller" in item and "callee" in item:
-                        desc = item.get("description", "")
-                        lines.append(f"- `{item['caller']}` → `{item['callee']}` ({item.get('file_path', '')}){f' — {desc}' if desc else ''}")
-                    else:
-                        lines.append(f"- {json.dumps(item, ensure_ascii=False)}")
+                if hasattr(item, "model_dump"):
+                    lines.append(_format_model_item(item, field_name))
                 else:
                     lines.append(f"- {item}")
         elif isinstance(value, str):
@@ -234,9 +357,38 @@ def formatter(state: AgentState) -> dict:
             lines.append(str(value))
         lines.append("")
 
-    formatted = "\n".join(lines)
-    logger.info("格式化完成, 输出长度: %d chars", len(formatted))
-    return {"formatted_output": formatted}
+    return lines
+
+
+def _format_model_item(item: object, parent_field: str) -> str:
+    """格式化嵌套的 Pydantic model（Module, CallStep 等）。"""
+    d = item.model_dump()
+    if "name" in d and "responsibility" in d:
+        return f"- **{d['name']}** (`{d.get('path', '')}`): {d['responsibility']}"
+    if "caller" in d and "callee" in d:
+        desc = d.get("description", "")
+        suffix = f" — {desc}" if desc else ""
+        return f"- `{d['caller']}` → `{d['callee']}` ({d.get('file_path', '')}){suffix}"
+    return f"- {json.dumps(d, ensure_ascii=False)}"
+
+
+def _format_dict_fallback(result: dict) -> list[str]:
+    """字典 fallback 格式化（Schema 验证失败时使用）。"""
+    lines: list[str] = []
+    for key, value in result.items():
+        label = key.replace("_", " ").title()
+        lines.append(f"## {label}")
+        lines.append("")
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    lines.append(f"- {json.dumps(item, ensure_ascii=False)}")
+                else:
+                    lines.append(f"- {item}")
+        else:
+            lines.append(str(value))
+        lines.append("")
+    return lines
 
 
 # ---------------------------------------------------------------------------
