@@ -133,9 +133,10 @@ user_input → skill_router → context_retriever → skill_executor → formatt
 - [x] nodes.py context_retriever + skill_executor 接入真实 Skill
 - [x] 错误处理: LLM 调用失败时优雅降级，error 信息传递到 formatter
 
-### 阶段 4: Skill Router (预计 0.5 天)
-- [ ] prompts/router.py: 路由 prompt (structured output)
-- [ ] graph/nodes.py: skill_router 节点接入 LLM
+### 阶段 4: Skill Router ✅ 已完成
+- [x] prompts/router.py: RouterOutput Schema + 路由 Prompt (含 few-shot 示例)
+- [x] graph/nodes.py: skill_router 接入 LLM structured output，关键词作为 fallback
+- [x] 路由准确率验证: 7/7 全部正确
 
 ### 阶段 5: Retriever + Formatter (预计 1 天)
 - [ ] context_retriever: 根据 skill_type 预检索上下文

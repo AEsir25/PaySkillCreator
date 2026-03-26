@@ -22,23 +22,48 @@ logger = logging.getLogger(__name__)
 def skill_router(state: AgentState) -> dict:
     """根据用户输入确定要使用的 Skill 类型。
 
-    - 如果用户通过 CLI 直接指定了 skill，直接采用
-    - 否则基于关键词路由（阶段 4 替换为 LLM 意图识别）
+    优先级: 用户指定 > LLM 意图识别 > 关键词 fallback
     """
     requested = state.get("requested_skill")
-
     if requested and requested in VALID_SKILLS:
         logger.info("使用用户指定的 Skill: %s", requested)
         return {"skill_type": requested}
 
     query = state.get("user_query", "")
+
+    skill, reason = _llm_route(query)
+    if skill:
+        logger.info("LLM 路由: %s (原因: %s)", skill, reason)
+        return {"skill_type": skill}
+
     skill = _keyword_route(query)
-    logger.info("路由结果: %s", skill)
+    logger.info("关键词 fallback 路由: %s", skill)
     return {"skill_type": skill}
 
 
+def _llm_route(query: str) -> tuple[str | None, str]:
+    """使用 LLM 做意图识别。失败时返回 (None, error_msg)。"""
+    from src.config import get_llm
+    from src.prompts.router import SYSTEM_PROMPT, USER_TEMPLATE, RouterOutput
+
+    try:
+        llm = get_llm()
+        structured_llm = llm.with_structured_output(RouterOutput)
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": USER_TEMPLATE.format(query=query)},
+        ]
+        result: RouterOutput = structured_llm.invoke(messages)
+        if result.skill_type in VALID_SKILLS:
+            return result.skill_type, result.reason
+        return None, f"LLM 返回了无效的 skill_type: {result.skill_type}"
+    except Exception as e:
+        logger.warning("LLM 路由失败，降级为关键词路由: %s", e)
+        return None, str(e)
+
+
 def _keyword_route(query: str) -> str:
-    """基于关键词路由，阶段 4 替换为 LLM。"""
+    """基于关键词的 fallback 路由。"""
     q = query.lower()
     if any(kw in q for kw in ("链路", "调用", "流程", "chain", "trace", "调用链")):
         return "chain_analysis"
