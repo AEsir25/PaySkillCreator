@@ -1,0 +1,159 @@
+---
+description: PaySkillCreator 项目上下文与实现计划，所有开发任务请先阅读此文件
+globs:
+  - "src/**"
+  - "evals/**"
+alwaysApply: true
+---
+
+# PaySkillCreator 项目上下文
+
+## 项目定位
+
+面向**单仓库**的分析型 Agent，将代码理解能力沉淀为可复用 Skills。
+- 只服务一个代码仓库
+- 只支持 3 个固定 Skills
+- 只做分析/理解/方案建议，不自动改代码
+- 基于 **LangGraph** 框架实现
+
+## 技术栈
+
+| 层面 | 选型 |
+|------|------|
+| Agent 编排 | LangGraph (StateGraph) |
+| LLM 调用 | LangChain + ChatOpenAI |
+| 代码解析 | Tree-sitter |
+| 向量检索 | FAISS (本地) |
+| 结构化输出 | Pydantic v2 |
+| CLI | Typer + Rich |
+| Python | 3.11+ (uv 管理) |
+
+## 虚拟环境
+
+- 使用 **uv** 管理 Python 和虚拟环境
+- Python 版本: 3.11.14，安装于 `.venv/`
+- 激活: `source .venv/bin/activate`
+- 安装依赖: `uv pip install -r requirements.txt`
+- 运行 CLI: `.venv/bin/python -m src.main`
+
+## 项目结构
+
+```
+src/
+├── main.py              # CLI 入口 (Typer)
+├── config.py            # 全局配置 (dataclass + dotenv)
+├── state.py             # LangGraph AgentState 定义
+├── graph/
+│   ├── builder.py       # StateGraph 构建与编排
+│   └── nodes.py         # 各节点函数实现
+├── skills/
+│   ├── base.py          # Skill 基类
+│   ├── repo_background.py   # Skill 1: 仓库背景知识
+│   ├── chain_analysis.py    # Skill 2: 代码链路分析
+│   └── plan_suggestion.py   # Skill 3: 需求方案建议
+├── tools/
+│   ├── file_reader.py   # 文件读取
+│   ├── code_search.py   # ripgrep 代码搜索
+│   ├── tree_parser.py   # Tree-sitter 结构解析
+│   └── vector_search.py # FAISS 语义检索
+├── prompts/
+│   ├── router.py        # Skill 路由 prompt
+│   ├── repo_background.py
+│   ├── chain_analysis.py
+│   └── plan_suggestion.py
+└── schemas/
+    ├── input.py         # 输入 Schema
+    └── output.py        # 输出 Schema (Pydantic)
+evals/                   # 评估用例
+```
+
+## LangGraph 工作流
+
+```
+user_input → skill_router → context_retriever → skill_executor → formatter → (human_review) → output
+```
+
+- `skill_router`: LLM 意图识别，选择 Skill 类型
+- `context_retriever`: 根据 Skill 类型调用 tools 预检索仓库上下文
+- `skill_executor`: 执行对应 Skill 分析（Skill 2 内部使用 ReAct 子图）
+- `formatter`: 结构化输出为 Markdown 报告
+- `human_review`: 可选，LangGraph interrupt_before 机制
+
+## 3 个 Skills
+
+### Skill 1: 仓库背景知识 (repo_background)
+- 输入: 仓库路径
+- 输出: RepoBackgroundOutput (概述、核心模块、关键目录、入口点、配置扩展点)
+- 工具: file_reader, code_search
+
+### Skill 2: 代码链路分析 (chain_analysis)
+- 输入: 类名/方法名/接口名
+- 输出: ChainAnalysisOutput (入口点、调用链、关键分支、依赖模块、风险点)
+- 工具: code_search, file_reader, tree_parser
+- 特殊: 内部使用 ReAct tool-calling agent 子图
+
+### Skill 3: 需求方案建议 (plan_suggestion)
+- 输入: 需求描述
+- 输出: PlanSuggestionOutput (需求理解、改动点、实现路径、影响范围、风险、测试建议)
+- 工具: 综合使用所有 tools
+
+## 分阶段实现计划
+
+### 阶段 0: 项目脚手架 ✅ 已完成
+- [x] pyproject.toml + requirements.txt
+- [x] 完整目录结构 + __init__.py
+- [x] .env.example 环境变量模板
+- [x] .gitignore
+- [x] config.py 全局配置
+- [x] state.py AgentState 定义
+- [x] schemas/output.py 输出 Schema
+- [x] main.py CLI 入口 (run / info)
+- [x] uv + Python 3.11 + 51 个依赖包安装验证
+
+### 阶段 1: State + Graph 骨架 (预计 1 天)
+- [ ] 在 graph/builder.py 中构建完整 StateGraph
+- [ ] 在 graph/nodes.py 中实现各节点占位函数 (stub)
+- [ ] 打通端到端流程: 输入 → 路由 → 检索 → 执行 → 格式化 → 输出
+- [ ] main.py 中接入 graph 调用
+
+### 阶段 2: Tools 层 (预计 1.5 天)
+- [ ] file_reader: 读取文件内容，支持路径和行范围
+- [ ] code_search: 基于 ripgrep 的代码搜索
+- [ ] tree_parser: Tree-sitter 解析代码结构 (类、方法、imports)
+- [ ] vector_search: FAISS 向量化 + 语义检索 (可后补)
+- [ ] 所有工具通过 @tool 装饰器注册
+
+### 阶段 3: 3 个 Skills 实现 (预计 3 天)
+- [ ] skills/base.py: Skill 基类 (execute + get_prompt_template)
+- [ ] Skill 1 repo_background: 扫描目录 + 读取关键文件 + LLM 综合分析
+- [ ] Skill 2 chain_analysis: 入口定位 + ReAct 多步追踪 + 调用链收集
+- [ ] Skill 3 plan_suggestion: 需求解析 + 模块定位 + 方案生成
+- [ ] 各 Skill 对应 prompts 编写
+
+### 阶段 4: Skill Router (预计 0.5 天)
+- [ ] prompts/router.py: 路由 prompt (structured output)
+- [ ] graph/nodes.py: skill_router 节点接入 LLM
+
+### 阶段 5: Retriever + Formatter (预计 1 天)
+- [ ] context_retriever: 根据 skill_type 预检索上下文
+- [ ] formatter: Pydantic → Markdown 报告
+- [ ] human_review: interrupt_before 机制
+
+### 阶段 6: CLI + 端到端测试 (预计 1 天)
+- [ ] main.py 完整接入 graph
+- [ ] 用目标仓库跑通 3 个 Skill
+- [ ] 验证输出格式与质量
+
+### 阶段 7: 评估优化 (预计 1 天)
+- [ ] evals/ 测试用例
+- [ ] Prompt 调优
+- [ ] 上下文窗口优化
+- [ ] 输出质量评估
+
+## 开发约定
+
+- 所有代码使用 `from __future__ import annotations` 延迟注解
+- 代码风格: ruff, line-length=100
+- 输出 Schema 必须使用 Pydantic BaseModel
+- LangGraph 节点函数签名: `def node_name(state: AgentState) -> dict`
+- 环境变量通过 .env 文件管理，不要硬编码 API Key
