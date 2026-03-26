@@ -110,11 +110,12 @@ user_input → skill_router → context_retriever → skill_executor → formatt
 - [x] main.py CLI 入口 (run / info)
 - [x] uv + Python 3.11 + 51 个依赖包安装验证
 
-### 阶段 1: State + Graph 骨架 (预计 1 天)
-- [ ] 在 graph/builder.py 中构建完整 StateGraph
-- [ ] 在 graph/nodes.py 中实现各节点占位函数 (stub)
-- [ ] 打通端到端流程: 输入 → 路由 → 检索 → 执行 → 格式化 → 输出
-- [ ] main.py 中接入 graph 调用
+### 阶段 1: State + Graph 骨架 ✅ 已完成
+- [x] 在 graph/builder.py 中构建完整 StateGraph (5 节点 + 条件边)
+- [x] 在 graph/nodes.py 中实现各节点 stub 函数 (含关键词路由)
+- [x] 打通端到端流程: 输入 → 路由 → 检索 → 执行 → 格式化 → 输出
+- [x] main.py 中接入 graph.invoke() 调用
+- [x] 3 个 Skill 自动路由 + 手动 --skill 指定均验证通过
 
 ### 阶段 2: Tools 层 (预计 1.5 天)
 - [ ] file_reader: 读取文件内容，支持路径和行范围

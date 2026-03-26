@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 
-from src.config import get_settings
+from src.config import Settings, get_settings
+from src.graph.builder import build_graph
 
 app = typer.Typer(
     name="payskill",
@@ -18,7 +21,9 @@ console = Console()
 @app.command()
 def run(
     query: str = typer.Argument(..., help="用户问题或任务描述"),
-    repo_path: Optional[str] = typer.Option(None, "--repo", "-r", help="目标仓库路径（覆盖 .env 配置）"),
+    repo_path: Optional[str] = typer.Option(
+        None, "--repo", "-r", help="目标仓库路径（覆盖 .env 配置）"
+    ),
     skill: Optional[str] = typer.Option(
         None,
         "--skill",
@@ -26,8 +31,18 @@ def run(
         help="指定 Skill 类型: repo_background / chain_analysis / plan_suggestion",
     ),
     review: bool = typer.Option(False, "--review", help="启用人工审核"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="启用详细日志"),
 ) -> None:
     """执行 Skill 分析任务"""
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.WARNING,
+        format="%(name)s | %(message)s",
+    )
+    if verbose:
+        logging.getLogger("markdown_it").setLevel(logging.WARNING)
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+
     settings = get_settings()
 
     if repo_path:
@@ -56,8 +71,27 @@ def run(
         )
     )
 
-    # TODO: 阶段 1 实现 - 构建并调用 LangGraph StateGraph
-    console.print("[yellow]Graph 尚未实现，将在阶段 1 中完成。[/yellow]")
+    initial_state = {
+        "repo_path": settings.target_repo_path,
+        "user_query": query,
+        "requested_skill": skill,
+        "need_review": review or settings.need_human_review,
+    }
+
+    console.print("[dim]正在构建分析工作流...[/dim]")
+    compiled_graph = build_graph()
+
+    console.print("[dim]正在执行分析...[/dim]\n")
+    final_state = compiled_graph.invoke(initial_state)
+
+    output = final_state.get("formatted_output", "")
+    if output:
+        console.print(Markdown(output))
+    else:
+        console.print("[yellow]未产生输出结果。[/yellow]")
+
+    skill_used = final_state.get("skill_type", "unknown")
+    console.print(f"\n[dim]Skill: {skill_used} | 审核: {'是' if review else '否'}[/dim]")
 
 
 @app.command()

@@ -7,12 +7,13 @@ from typing import Literal, TypedDict
 
 SkillType = Literal["repo_background", "chain_analysis", "plan_suggestion"]
 
+VALID_SKILLS: set[str] = {"repo_background", "chain_analysis", "plan_suggestion"}
+
 
 class AgentState(TypedDict, total=False):
     # --- 输入 ---
     repo_path: str
     user_query: str
-    # 用户直接指定的 Skill（可选，为空则自动路由）
     requested_skill: str | None
 
     # --- 路由结果 ---
@@ -30,3 +31,6 @@ class AgentState(TypedDict, total=False):
     # --- 人工审核 ---
     need_review: bool
     review_approved: bool | None
+
+    # --- 错误信息 ---
+    error: str | None

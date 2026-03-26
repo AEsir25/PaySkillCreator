@@ -87,7 +87,7 @@ evals/               # 评估用例
 ## 当前进度
 
 - [x] 阶段 0: 项目脚手架
-- [ ] 阶段 1: State + Graph 骨架
+- [x] 阶段 1: State + Graph 骨架
 - [ ] 阶段 2: Tools 层
 - [ ] 阶段 3: Skills 实现
 - [ ] 阶段 4: Skill Router
