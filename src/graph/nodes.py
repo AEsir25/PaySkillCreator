@@ -1,7 +1,6 @@
 """LangGraph 各节点函数实现
 
 每个节点接收 AgentState，返回要更新的字段 dict。
-当前为 stub 实现，后续阶段逐步替换为真实逻辑。
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ def skill_router(state: AgentState) -> dict:
     """根据用户输入确定要使用的 Skill 类型。
 
     - 如果用户通过 CLI 直接指定了 skill，直接采用
-    - 否则由 LLM 做意图识别（当前 stub: 默认 repo_background）
+    - 否则基于关键词路由（阶段 4 替换为 LLM 意图识别）
     """
     requested = state.get("requested_skill")
 
@@ -32,15 +31,14 @@ def skill_router(state: AgentState) -> dict:
         logger.info("使用用户指定的 Skill: %s", requested)
         return {"skill_type": requested}
 
-    # TODO: 阶段 4 — 接入 LLM 意图识别
     query = state.get("user_query", "")
-    skill = _stub_route(query)
-    logger.info("路由结果 (stub): %s", skill)
+    skill = _keyword_route(query)
+    logger.info("路由结果: %s", skill)
     return {"skill_type": skill}
 
 
-def _stub_route(query: str) -> str:
-    """基于关键词的简单 stub 路由，后续替换为 LLM。"""
+def _keyword_route(query: str) -> str:
+    """基于关键词路由，阶段 4 替换为 LLM。"""
     q = query.lower()
     if any(kw in q for kw in ("链路", "调用", "流程", "chain", "trace", "调用链")):
         return "chain_analysis"
@@ -54,22 +52,48 @@ def _stub_route(query: str) -> str:
 # ---------------------------------------------------------------------------
 
 def context_retriever(state: AgentState) -> dict:
-    """根据 skill_type 检索相关仓库上下文。
+    """根据 skill_type 预检索相关仓库上下文。
 
-    TODO: 阶段 2/5 — 接入 tools 层做真实检索
+    Skill 1/3 在此步收集上下文，Skill 2 的 ReAct Agent 在执行时自主检索。
     """
+    from src.tools.code_search import search_code
+    from src.tools.file_reader import list_directory, read_key_files
+
     skill_type = state.get("skill_type", "repo_background")
     repo_path = state.get("repo_path", "")
     query = state.get("user_query", "")
 
-    logger.info("检索上下文 (stub): skill=%s, repo=%s", skill_type, repo_path)
+    logger.info("检索上下文: skill=%s, repo=%s", skill_type, repo_path)
 
-    context = [
-        f"[stub] skill_type={skill_type}",
-        f"[stub] repo_path={repo_path}",
-        f"[stub] query={query}",
-        "[stub] 真实上下文将在阶段 2/5 中接入",
-    ]
+    context: list[str] = []
+
+    if skill_type == "repo_background":
+        context.append(list_directory.invoke({
+            "dir_path": repo_path, "repo_path": repo_path, "max_depth": 3,
+        }))
+        context.append(read_key_files.invoke({"repo_path": repo_path}))
+
+    elif skill_type == "chain_analysis":
+        # ReAct Agent 在 skill_executor 中自主检索，此处做轻量预搜索
+        context.append(list_directory.invoke({
+            "dir_path": repo_path, "repo_path": repo_path, "max_depth": 2,
+        }))
+        r = search_code.invoke({
+            "pattern": query[:50], "repo_path": repo_path, "max_results": 10,
+        })
+        context.append(r)
+
+    elif skill_type == "plan_suggestion":
+        context.append(list_directory.invoke({
+            "dir_path": repo_path, "repo_path": repo_path, "max_depth": 3,
+        }))
+        context.append(read_key_files.invoke({"repo_path": repo_path}))
+        r = search_code.invoke({
+            "pattern": query[:50], "repo_path": repo_path, "max_results": 10,
+        })
+        context.append(r)
+
+    logger.info("检索完成: %d 段上下文", len(context))
     return {"retrieved_context": context}
 
 
@@ -78,60 +102,43 @@ def context_retriever(state: AgentState) -> dict:
 # ---------------------------------------------------------------------------
 
 def skill_executor(state: AgentState) -> dict:
-    """调用对应 Skill 执行分析。
+    """调用对应 Skill 执行分析。"""
+    from src.config import get_llm
+    from src.skills.chain_analysis import ChainAnalysisSkill
+    from src.skills.plan_suggestion import PlanSuggestionSkill
+    from src.skills.repo_background import RepoBackgroundSkill
 
-    TODO: 阶段 3 — 接入真实 Skill 实现
-    """
     skill_type = state.get("skill_type", "repo_background")
+    repo_path = state.get("repo_path", "")
     query = state.get("user_query", "")
+    context = state.get("retrieved_context", [])
 
-    logger.info("执行 Skill (stub): %s", skill_type)
+    logger.info("执行 Skill: %s", skill_type)
 
-    result = _STUB_RESULTS.get(skill_type, _STUB_RESULTS["repo_background"])
-    result = {**result, "_stub": True, "_query": query}
-    return {"skill_result": result}
+    skill_map = {
+        "repo_background": RepoBackgroundSkill,
+        "chain_analysis": ChainAnalysisSkill,
+        "plan_suggestion": PlanSuggestionSkill,
+    }
 
+    skill_cls = skill_map.get(skill_type)
+    if not skill_cls:
+        return {
+            "skill_result": {},
+            "error": f"未知的 Skill 类型: {skill_type}",
+        }
 
-_STUB_RESULTS: dict[str, dict] = {
-    "repo_background": {
-        "overview": "这是一个示例仓库概述（stub 数据）",
-        "core_modules": [
-            {"name": "module-a", "path": "src/module_a", "responsibility": "核心业务逻辑"},
-            {"name": "module-b", "path": "src/module_b", "responsibility": "数据访问层"},
-        ],
-        "key_directories": ["src/", "config/", "docs/"],
-        "entry_points": ["src/main.py"],
-        "config_extension_points": ["config/settings.yaml"],
-    },
-    "chain_analysis": {
-        "entry_point": "Controller.handleRequest()",
-        "call_chain": [
-            {
-                "caller": "Controller.handleRequest",
-                "callee": "Service.process",
-                "file_path": "src/controller.java",
-                "description": "入口调用",
-            },
-            {
-                "caller": "Service.process",
-                "callee": "Dao.query",
-                "file_path": "src/service.java",
-                "description": "业务调用数据层",
-            },
-        ],
-        "key_branches": ["if (orderType == REFUND) → RefundService"],
-        "dependencies": ["module-a", "module-b"],
-        "risks": ["Dao.query 存在 N+1 查询风险"],
-    },
-    "plan_suggestion": {
-        "requirement_understanding": "用户希望实现某功能（stub 数据）",
-        "candidate_changes": ["src/service.java", "src/controller.java"],
-        "recommended_path": "在 Service 层新增方法，Controller 层增加路由",
-        "impact_scope": ["module-a", "module-b"],
-        "risk_analysis": ["需要回归测试现有接口"],
-        "test_suggestions": ["单元测试覆盖新增方法", "集成测试验证端到端流程"],
-    },
-}
+    try:
+        llm = get_llm()
+        skill = skill_cls(llm=llm, repo_path=repo_path)
+        result = skill.execute(query, context)
+        return {"skill_result": result}
+    except Exception as e:
+        logger.exception("Skill 执行失败: %s", e)
+        return {
+            "skill_result": {},
+            "error": f"Skill 执行失败: {e}",
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -144,39 +151,60 @@ _SKILL_TITLES: dict[str, str] = {
     "plan_suggestion": "需求方案建议",
 }
 
+_FIELD_LABELS: dict[str, str] = {
+    "overview": "概述",
+    "core_modules": "核心模块",
+    "key_directories": "关键目录",
+    "entry_points": "入口位置",
+    "config_extension_points": "配置与扩展点",
+    "entry_point": "入口点",
+    "call_chain": "调用链",
+    "key_branches": "关键分支",
+    "dependencies": "依赖模块",
+    "risks": "风险点",
+    "requirement_understanding": "需求理解",
+    "candidate_changes": "候选改动点",
+    "recommended_path": "推荐实现路径",
+    "impact_scope": "影响范围",
+    "risk_analysis": "风险分析",
+    "test_suggestions": "验证与测试建议",
+}
+
 
 def formatter(state: AgentState) -> dict:
-    """将 skill_result 格式化为 Markdown 报告。
-
-    TODO: 阶段 5 — 使用 Pydantic Schema 做严格格式化
-    """
+    """将 skill_result 格式化为 Markdown 报告。"""
     skill_type = state.get("skill_type", "repo_background")
     result = state.get("skill_result", {})
+    error = state.get("error")
+    query = state.get("user_query", "")
 
     title = _SKILL_TITLES.get(skill_type, "分析结果")
-    is_stub = result.pop("_stub", False)
-    query = result.pop("_query", "")
 
-    lines: list[str] = []
-    lines.append(f"# {title}")
-    lines.append("")
+    lines: list[str] = [f"# {title}", ""]
     if query:
-        lines.append(f"> **用户问题**: {query}")
-        lines.append("")
-    if is_stub:
-        lines.append("> ⚠️ 当前为 stub 数据，真实分析将在后续阶段实现")
-        lines.append("")
+        lines.extend([f"> **用户问题**: {query}", ""])
+    if error:
+        lines.extend([f"> **错误**: {error}", ""])
 
     for key, value in result.items():
-        section_title = key.replace("_", " ").title()
-        lines.append(f"## {section_title}")
+        label = _FIELD_LABELS.get(key, key.replace("_", " ").title())
+        lines.append(f"## {label}")
         lines.append("")
+
         if isinstance(value, list):
             for item in value:
                 if isinstance(item, dict):
-                    lines.append(f"- **{item.get('name', item.get('caller', ''))}**: {json.dumps(item, ensure_ascii=False)}")
+                    if "name" in item and "responsibility" in item:
+                        lines.append(f"- **{item['name']}** (`{item.get('path', '')}`): {item['responsibility']}")
+                    elif "caller" in item and "callee" in item:
+                        desc = item.get("description", "")
+                        lines.append(f"- `{item['caller']}` → `{item['callee']}` ({item.get('file_path', '')}){f' — {desc}' if desc else ''}")
+                    else:
+                        lines.append(f"- {json.dumps(item, ensure_ascii=False)}")
                 else:
                     lines.append(f"- {item}")
+        elif isinstance(value, str):
+            lines.append(value)
         else:
             lines.append(str(value))
         lines.append("")
@@ -191,11 +219,7 @@ def formatter(state: AgentState) -> dict:
 # ---------------------------------------------------------------------------
 
 def human_review(state: AgentState) -> dict:
-    """人工审核中断点。
-
-    使用 LangGraph interrupt() 暂停执行，等待外部确认。
-    CLI 模式下直接与用户交互。
-    """
+    """人工审核中断点。使用 LangGraph interrupt() 暂停执行。"""
     formatted = state.get("formatted_output", "")
     logger.info("进入人工审核节点")
 
@@ -212,10 +236,10 @@ def human_review(state: AgentState) -> dict:
     if not approved:
         return {
             "review_approved": False,
-            "formatted_output": formatted + "\n\n---\n> ❌ **审核未通过**，结果仅供参考。",
+            "formatted_output": formatted + "\n\n---\n> **审核未通过**，结果仅供参考。",
         }
 
     return {
         "review_approved": True,
-        "formatted_output": formatted + "\n\n---\n> ✅ **审核通过**",
+        "formatted_output": formatted + "\n\n---\n> **审核通过**",
     }

@@ -43,3 +43,16 @@ class Settings:
 def get_settings() -> Settings:
     settings = Settings()
     return settings
+
+
+def get_llm(settings: Settings | None = None):
+    """创建 ChatOpenAI 实例。"""
+    from langchain_openai import ChatOpenAI
+
+    s = settings or get_settings()
+    return ChatOpenAI(
+        api_key=s.llm.api_key,
+        base_url=s.llm.base_url,
+        model=s.llm.model_name,
+        temperature=0,
+    )

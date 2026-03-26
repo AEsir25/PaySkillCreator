@@ -124,12 +124,14 @@ user_input → skill_router → context_retriever → skill_executor → formatt
 - [x] vector_search: build_index / semantic_search (FAISS + 简易 TF-IDF，懒加载+缓存)
 - [x] 所有 11 个工具通过 @tool 装饰器注册，tools/__init__.py 统一导出 ALL_TOOLS
 
-### 阶段 3: 3 个 Skills 实现 (预计 3 天)
-- [ ] skills/base.py: Skill 基类 (execute + get_prompt_template)
-- [ ] Skill 1 repo_background: 扫描目录 + 读取关键文件 + LLM 综合分析
-- [ ] Skill 2 chain_analysis: 入口定位 + ReAct 多步追踪 + 调用链收集
-- [ ] Skill 3 plan_suggestion: 需求解析 + 模块定位 + 方案生成
-- [ ] 各 Skill 对应 prompts 编写
+### 阶段 3: 3 个 Skills 实现 ✅ 已完成
+- [x] skills/base.py: Skill 基类 (execute + _call_llm_structured)
+- [x] Skill 1 repo_background: list_directory + read_key_files → LLM structured output
+- [x] Skill 2 chain_analysis: create_react_agent + 7 个 Tools → 多轮追踪 → 结构化总结
+- [x] Skill 3 plan_suggestion: 上下文收集 + 关键词搜索 → LLM structured output
+- [x] 3 个 Prompt 模板 (prompts/repo_background, chain_analysis, plan_suggestion)
+- [x] nodes.py context_retriever + skill_executor 接入真实 Skill
+- [x] 错误处理: LLM 调用失败时优雅降级，error 信息传递到 formatter
 
 ### 阶段 4: Skill Router (预计 0.5 天)
 - [ ] prompts/router.py: 路由 prompt (structured output)

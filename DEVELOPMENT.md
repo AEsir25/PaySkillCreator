@@ -89,7 +89,7 @@ evals/               # 评估用例
 - [x] 阶段 0: 项目脚手架
 - [x] 阶段 1: State + Graph 骨架
 - [x] 阶段 2: Tools 层
-- [ ] 阶段 3: Skills 实现
+- [x] 阶段 3: Skills 实现
 - [ ] 阶段 4: Skill Router
 - [ ] 阶段 5: Retriever + Formatter
 - [ ] 阶段 6: 端到端测试
