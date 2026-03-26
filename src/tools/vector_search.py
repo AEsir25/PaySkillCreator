@@ -126,8 +126,8 @@ def _build_faiss_index(chunks: list[dict], repo_path: str) -> object | None:
     _cache._vocab = vocab
 
     cache_dir = Path(repo_path) / ".payskill_cache"
-    cache_dir.mkdir(exist_ok=True)
     try:
+        cache_dir.mkdir(exist_ok=True)
         faiss.write_index(index, str(cache_dir / "code.faiss"))
         with open(cache_dir / "chunks.pkl", "wb") as f:
             pickle.dump(chunks, f)
@@ -135,7 +135,7 @@ def _build_faiss_index(chunks: list[dict], repo_path: str) -> object | None:
             pickle.dump(vocab, f)
         logger.info("索引已缓存到 %s", cache_dir)
     except Exception as e:
-        logger.warning("索引缓存失败: %s", e)
+        logger.warning("索引缓存失败 (仅保留内存索引): %s", e)
 
     return index
 

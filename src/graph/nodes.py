@@ -158,11 +158,14 @@ def context_retriever(state: AgentState) -> dict:
             })
             if "未找到" not in r:
                 parts.append(r)
-        sem = semantic_search.invoke({
-            "query": query, "repo_path": repo_path, "top_k": 3,
-        })
-        if "未找到" not in sem:
-            parts.append(sem)
+        try:
+            sem = semantic_search.invoke({
+                "query": query, "repo_path": repo_path, "top_k": 3,
+            })
+            if "未找到" not in sem:
+                parts.append(sem)
+        except Exception as e:
+            logger.warning("语义搜索失败，跳过: %s", e)
 
     elif skill_type == "plan_suggestion":
         parts.append(list_directory.invoke({
@@ -176,11 +179,14 @@ def context_retriever(state: AgentState) -> dict:
             })
             if "未找到" not in r:
                 parts.append(r)
-        sem = semantic_search.invoke({
-            "query": query, "repo_path": repo_path, "top_k": 3,
-        })
-        if "未找到" not in sem:
-            parts.append(sem)
+        try:
+            sem = semantic_search.invoke({
+                "query": query, "repo_path": repo_path, "top_k": 3,
+            })
+            if "未找到" not in sem:
+                parts.append(sem)
+        except Exception as e:
+            logger.warning("语义搜索失败，跳过: %s", e)
 
     context = _truncate_context(parts, max_tokens)
     total_tokens = sum(_estimate_tokens(c) for c in context)
@@ -339,7 +345,7 @@ def formatter(state: AgentState) -> dict:
 def _format_pydantic(output: object) -> list[str]:
     """基于 Pydantic model 的 field info 格式化。"""
     lines: list[str] = []
-    for field_name, field_info in output.model_fields.items():
+    for field_name, field_info in type(output).model_fields.items():
         value = getattr(output, field_name)
         label = field_info.description or field_name.replace("_", " ").title()
         lines.append(f"## {label}")

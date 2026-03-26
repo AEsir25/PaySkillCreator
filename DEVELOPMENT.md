@@ -84,13 +84,40 @@ src/
 evals/               # 评估用例
 ```
 
+## 测试
+
+```bash
+# 运行不需要 LLM 的本地测试（Tools、路由关键词、Graph 构建）
+.venv/bin/python -m pytest evals/ -v -k "not llm and not slow"
+
+# 运行包含 LLM 的全量测试（需要 .env 中配置 API Key）
+.venv/bin/python -m pytest evals/ -v -s
+
+# 只运行路由准确率评估
+.venv/bin/python -m pytest evals/test_router.py -v -s
+```
+
+### 测试矩阵
+
+| 测试文件 | 覆盖范围 | 是否需要 LLM |
+|---|---|---|
+| `test_tools.py` | file_reader / code_search / tree_parser | 否 |
+| `test_router.py` | 关键词路由 + LLM 路由准确率 | 部分 |
+| `test_graph.py` | Graph 构建 + 3 Skill 端到端 | 部分 |
+
+### 评估指标
+
+- **关键词路由准确率**: 86.7% (13/15)
+- **LLM 路由准确率**: 100% (15/15)
+- **端到端测试**: 3/3 Skill 全部通过
+
 ## 当前进度
 
 - [x] 阶段 0: 项目脚手架
 - [x] 阶段 1: State + Graph 骨架
 - [x] 阶段 2: Tools 层
 - [x] 阶段 3: Skills 实现
-- [x] 阶段 4: Skill Router
-- [x] 阶段 5: Retriever + Formatter
-- [ ] 阶段 6: 端到端测试
-- [ ] 阶段 7: 评估优化
+- [x] 阶段 4: Skill Router LLM 化
+- [x] 阶段 5: Retriever + Formatter 优化
+- [x] 阶段 6: 端到端测试
+- [x] 阶段 7: 评估框架
