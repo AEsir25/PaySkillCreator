@@ -53,7 +53,7 @@ PROVIDERS: tuple[ProviderDef, ...] = (
         display_name="MiniMax",
         api_key_env="MINIMAX_API_KEY",
         base_url_env="MINIMAX_BASE_URL",
-        default_base_url="https://api.minimax.chat/v1/text/chatcompletion_v2",
+        default_base_url="https://api.minimax.chat/v1",
         models=(
             ModelDef("abab6.5s-chat", "ABAB 6.5s", "minimax", "abab6.5s-chat", "高性价比对话模型"),
             ModelDef("abab6.5-chat", "ABAB 6.5", "minimax", "abab6.5-chat", "旗舰对话模型"),
@@ -175,22 +175,33 @@ def get_llm(settings: Settings | None = None, model_id: str | None = None):
                   传入时按 Provider 注册表查找凭据。
     """
     from langchain_openai import ChatOpenAI
+    import json as _json, time as _time  # noqa: E401
+
+    _log_path = "/Users/zhengyehui.1/PaySkillCreator/.cursor/debug-1cdcab.log"
 
     if model_id and model_id in _MODEL_MAP:
         model_def, provider_def = _MODEL_MAP[model_id]
         api_key = _resolve_provider_key(provider_def)
         base_url = _resolve_provider_base_url(provider_def)
+        # #region agent log
+        with open(_log_path, "a") as _f: _f.write(_json.dumps({"sessionId":"1cdcab","location":"config.py:get_llm","message":"provider branch","data":{"model_id":model_id,"provider":provider_def.id,"base_url":base_url,"model_name":model_def.model_name,"has_key":bool(api_key)},"hypothesisId":"A,C","timestamp":int(_time.time()*1000)}) + "\n")
+        # #endregion
         return ChatOpenAI(
             api_key=api_key,
             base_url=base_url,
             model=model_def.model_name,
             temperature=0,
+            max_tokens=4096,
         )
 
     s = settings or get_settings()
+    # #region agent log
+    with open(_log_path, "a") as _f: _f.write(_json.dumps({"sessionId":"1cdcab","location":"config.py:get_llm","message":"fallback branch","data":{"model_id":model_id,"base_url":s.llm.base_url,"model_name":s.llm.model_name,"has_key":bool(s.llm.api_key)},"hypothesisId":"B","timestamp":int(_time.time()*1000)}) + "\n")
+    # #endregion
     return ChatOpenAI(
         api_key=s.llm.api_key,
         base_url=s.llm.base_url,
         model=s.llm.model_name,
         temperature=0,
+        max_tokens=4096,
     )

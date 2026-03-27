@@ -312,6 +312,12 @@ def _execute_generate_skill(
     """运行上游分析 Skill (repo_background + plan_suggestion) 并汇总结果。"""
     from src.config import get_llm, get_settings
     from src.skills.skill_generator import SkillGeneratorSkill
+    import json as _json, time as _time  # noqa: E401
+    _log_path = "/Users/zhengyehui.1/PaySkillCreator/.cursor/debug-1cdcab.log"
+
+    # #region agent log
+    with open(_log_path, "a") as _f: _f.write(_json.dumps({"sessionId":"1cdcab","location":"nodes.py:_execute_generate_skill","message":"entry","data":{"model_id":model_id},"hypothesisId":"B,E","timestamp":int(_time.time()*1000)}) + "\n")
+    # #endregion
 
     try:
         llm = get_llm(model_id=model_id)
