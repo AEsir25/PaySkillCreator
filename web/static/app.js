@@ -9,6 +9,7 @@ const repoPathInput = $("#repoPath");
 const modelInfo = $("#modelInfo");
 
 let isAnalyzing = false;
+let currentSkillType = null;
 
 // ---- Init ----
 
@@ -25,9 +26,17 @@ async function init() {
   queryInput.addEventListener("keydown", onKeyDown);
   sendBtn.addEventListener("click", doSend);
   clearBtn.addEventListener("click", clearChat);
+  bindQuickButtons();
+}
+
+function bindQuickButtons() {
   document.querySelectorAll(".quick-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       queryInput.value = btn.dataset.query;
+      if (btn.dataset.skill) {
+        const radio = document.querySelector(`input[name="skill"][value="${btn.dataset.skill}"]`);
+        if (radio) radio.checked = true;
+      }
       onInputChange();
       doSend();
     });
@@ -63,6 +72,7 @@ async function doSend() {
   }
 
   const skill = document.querySelector('input[name="skill"]:checked')?.value || null;
+  currentSkillType = skill;
 
   hideWelcome();
   appendUserMessage(query);
@@ -92,17 +102,36 @@ async function doSend() {
 
 // ---- SSE Processing ----
 
+const ANALYSIS_STEPS = {
+  routing: { label: "识别任务类型", done: false },
+  retrieving: { label: "检索仓库上下文", done: false },
+  executing: { label: "执行 Skill 分析", done: false },
+  formatting: { label: "生成结构化报告", done: false },
+};
+
+const GENERATE_SKILL_STEPS = {
+  routing: { label: "识别任务类型", done: false },
+  retrieving: { label: "检索仓库上下文", done: false },
+  executing: { label: "运行上游分析 Skill", done: false },
+  spec_generating: { label: "生成 Skill 规格", done: false },
+  md_rendering: { label: "渲染 SKILL.md", done: false },
+};
+
+function buildSteps(skillType) {
+  const template = skillType === "generate_skill" ? GENERATE_SKILL_STEPS : ANALYSIS_STEPS;
+  const steps = {};
+  for (const [k, v] of Object.entries(template)) {
+    steps[k] = { ...v, done: false, detail: undefined };
+  }
+  return steps;
+}
+
 async function processSSE(body, progressEl, contentEl, metaEl) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
 
-  const steps = {
-    routing: { label: "识别任务类型", done: false },
-    retrieving: { label: "检索仓库上下文", done: false },
-    executing: { label: "执行 Skill 分析", done: false },
-    formatting: { label: "生成结构化报告", done: false },
-  };
+  let steps = buildSteps(currentSkillType);
   renderProgress(progressEl, steps, null);
 
   while (true) {
@@ -121,7 +150,7 @@ async function processSSE(body, progressEl, contentEl, metaEl) {
         const raw = line.slice(6);
         try {
           const data = JSON.parse(raw);
-          handleSSEEvent(eventType, data, steps, progressEl, contentEl, metaEl);
+          steps = handleSSEEvent(eventType, data, steps, progressEl, contentEl, metaEl);
         } catch { /* skip malformed */ }
       }
     }
@@ -131,16 +160,20 @@ async function processSSE(body, progressEl, contentEl, metaEl) {
 function handleSSEEvent(event, data, steps, progressEl, contentEl, metaEl) {
   if (event === "status") {
     const stage = data.stage;
-    // mark previous stages as done
-    const stageOrder = ["routing", "retrieving", "executing", "formatting"];
+
+    if (stage === "routing" && data.skill_type) {
+      currentSkillType = data.skill_type;
+      if (data.skill_type === "generate_skill" && !steps.spec_generating) {
+        steps = buildSteps("generate_skill");
+      }
+      steps.routing.done = true;
+      steps.routing.detail = data.skill_type === "generate_skill" ? "生成 SKILL.md" : data.skill_type;
+    }
+
+    const stageOrder = Object.keys(steps);
     const idx = stageOrder.indexOf(stage);
     for (let i = 0; i < idx; i++) {
       if (steps[stageOrder[i]]) steps[stageOrder[i]].done = true;
-    }
-
-    if (stage === "routing" && data.skill_type) {
-      steps.routing.done = true;
-      steps.routing.detail = `${data.skill_type}`;
     }
 
     renderProgress(progressEl, steps, stage);
@@ -151,10 +184,16 @@ function handleSSEEvent(event, data, steps, progressEl, contentEl, metaEl) {
     renderProgress(progressEl, steps, null);
 
     const md = data.formatted_output || "*无结果*";
+    const skillType = data.skill_type || currentSkillType;
+
     setContent(contentEl, md);
 
+    if (skillType === "generate_skill" && data.formatted_output) {
+      appendDownloadButton(contentEl, data.formatted_output);
+    }
+
     const meta = data.metadata || {};
-    renderMetadata(metaEl, data.skill_type, meta);
+    renderMetadata(metaEl, skillType, meta);
   }
 
   if (event === "error") {
@@ -163,6 +202,42 @@ function handleSSEEvent(event, data, steps, progressEl, contentEl, metaEl) {
     contentEl.closest(".msg-ai")?.classList.add("msg-error");
     setContent(contentEl, `**错误**: ${data.message}`);
   }
+
+  return steps;
+}
+
+function appendDownloadButton(contentEl, markdown) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "download-bar";
+
+  const btn = document.createElement("button");
+  btn.className = "btn-download";
+  btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 下载 SKILL.md`;
+  btn.addEventListener("click", () => {
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "SKILL.md";
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "btn-download btn-copy";
+  copyBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg> 复制内容`;
+  copyBtn.addEventListener("click", () => {
+    navigator.clipboard.writeText(markdown).then(() => {
+      copyBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> 已复制`;
+      setTimeout(() => {
+        copyBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg> 复制内容`;
+      }, 2000);
+    });
+  });
+
+  wrapper.appendChild(btn);
+  wrapper.appendChild(copyBtn);
+  contentEl.appendChild(wrapper);
 }
 
 // ---- Rendering ----
@@ -251,16 +326,11 @@ function clearChat() {
         <button class="quick-btn" data-query="请介绍这个仓库的整体架构和核心模块">仓库架构概览</button>
         <button class="quick-btn" data-query="分析支付下单的调用链路">支付链路分析</button>
         <button class="quick-btn" data-query="添加一个新的支付渠道需要改哪些地方">新增支付渠道方案</button>
+        <button class="quick-btn quick-btn-accent" data-query="为这个仓库生成代码链路追踪的 SKILL.md" data-skill="generate_skill">生成 SKILL.md</button>
       </div>
     </div>
   `;
-  document.querySelectorAll(".quick-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      queryInput.value = btn.dataset.query;
-      onInputChange();
-      doSend();
-    });
-  });
+  bindQuickButtons();
 }
 
 function scrollToBottom() {

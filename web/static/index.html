@@ -13,7 +13,7 @@
     <aside class="sidebar">
       <div class="sidebar-header">
         <h1>PaySkillCreator</h1>
-        <p class="subtitle">单仓库分析 Agent</p>
+        <p class="subtitle">单仓库分析 Agent · SKILL.md 生成器</p>
       </div>
 
       <div class="sidebar-section">
@@ -46,6 +46,11 @@
             <span class="radio-label">需求方案建议</span>
             <span class="radio-hint">改动点 / 影响范围</span>
           </label>
+          <label class="radio-item radio-item-accent">
+            <input type="radio" name="skill" value="generate_skill">
+            <span class="radio-label">生成 SKILL.md</span>
+            <span class="radio-hint">将仓库能力沉淀为 Skill 文件</span>
+          </label>
         </div>
       </div>
 
@@ -69,6 +74,7 @@
             <button class="quick-btn" data-query="请介绍这个仓库的整体架构和核心模块">仓库架构概览</button>
             <button class="quick-btn" data-query="分析支付下单的调用链路">支付链路分析</button>
             <button class="quick-btn" data-query="添加一个新的支付渠道需要改哪些地方">新增支付渠道方案</button>
+            <button class="quick-btn quick-btn-accent" data-query="为这个仓库生成代码链路追踪的 SKILL.md" data-skill="generate_skill">生成 SKILL.md</button>
           </div>
         </div>
       </div>

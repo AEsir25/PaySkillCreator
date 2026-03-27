@@ -44,6 +44,8 @@ _NODE_LABELS: dict[str, tuple[str, str]] = {
     "context_retriever": ("retrieving", "正在检索仓库上下文..."),
     "skill_executor": ("executing", "正在执行 Skill 分析..."),
     "formatter": ("formatting", "正在生成结构化报告..."),
+    "skill_spec_generator": ("spec_generating", "正在生成 Skill 规格..."),
+    "skill_md_formatter": ("md_rendering", "正在渲染 SKILL.md..."),
 }
 
 

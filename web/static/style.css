@@ -434,6 +434,71 @@ body {
   font-weight: 600;
 }
 
+/* ---- Download Bar ---- */
+
+.download-bar {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.btn-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-download:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-download.btn-copy {
+  border-color: var(--border);
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+.btn-download.btn-copy:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+/* ---- Accent Radio & Quick Button ---- */
+
+.radio-item-accent {
+  border: 1px solid var(--accent-dim);
+  background: rgba(99, 102, 241, 0.05);
+  margin-top: 4px;
+}
+
+.radio-item-accent .radio-label {
+  color: var(--accent);
+}
+
+.quick-btn-accent {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.quick-btn-accent:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
 /* ---- Error ---- */
 
 .msg-error .msg-content {
