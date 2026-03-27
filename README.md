@@ -1,195 +1,357 @@
 # PaySkillCreator
 
-一个面向**单仓库**的分析型 Agent 项目，目标是将对代码库的理解与分析能力沉淀为一组可复用的 Skills。
+面向**单仓库**的分析型 Agent —— 将对代码库的理解与分析能力沉淀为一组可复用的 Skills。
+
+基于 **LangGraph** 工作流 + **LLM 意图路由** + **代码分析工具链** 构建。
 
 ---
 
-## 项目简介
+## 快速开始
 
-Pay Skill Creator 是一个用于探索 Harness Engineering 的 MVP 项目。
+### 1. 环境准备
 
-这个项目不追求做一个“通用代码助手”或“全自动开发 Agent”，而是聚焦一个更窄、更可落地的方向：
+```bash
+# 安装 uv（如尚未安装）
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-- 只服务 **一个代码仓库**
-- 只支持 **少量固定 Skills**
-- 主要解决 **分析类、理解类、方案类任务**
-- 第一版 **不直接自动改代码**
+# 安装 Python 3.11
+uv python install 3.11
 
-项目的核心思路是：
+# 克隆项目并进入目录
+cd PaySkillCreator
 
-> 将针对某个代码仓库的背景知识、代码链路理解能力、需求分析能力，封装成一组可复用的 Skills，让 Agent 能够稳定地完成特定类型的分析任务。
+# 创建虚拟环境 + 安装依赖
+uv venv --python 3.11
+uv pip install -r requirements.txt
 
----
+# 安装测试依赖（可选）
+uv pip install pytest
+```
 
-## 项目目标
+### 2. 配置 API Key 与目标仓库
 
-构建一个面向**单一代码仓库**的 Agent，能够基于固定的 Skills，对仓库进行分析，并输出结构化结果。
+```bash
+cp .env.example .env
+```
 
-这个项目的重点不在于做“大而全”的 Agent，而在于验证以下问题：
+编辑 `.env` 文件，填入两个**必填项**：
 
-- 能否将“针对仓库的理解能力”沉淀为可复用 Skill
-- 能否让 Agent 基于固定 Skill 稳定完成分析任务
-- 能否通过工具、Prompt、工作流的组合，形成一个可演进的 Harness
+```properties
+# 你的 LLM API Key
+# 支持 OpenAI 原生 / 阿里云百炼 / 任何 OpenAI 兼容接口
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
 
----
+# 百炼 OpenAI 兼容接口（如果用 OpenAI 原生则改为 https://api.openai.com/v1）
+OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 
-## MVP 范围
+# 模型名称（百炼: qwen-plus / qwen-max / qwen-turbo，OpenAI: gpt-4o）
+MODEL_NAME=qwen-plus
 
-第一版项目会严格控制范围，只做最小可行产品。
+# 要分析的目标代码仓库的本地绝对路径
+TARGET_REPO_PATH=/path/to/your/java/project
+```
 
-### 目标范围
+### 3. 验证安装
 
-- 单仓库场景
-- 固定 Skill 集合
-- 代码背景知识提取
-- 代码逻辑链路分析
-- 基于需求的实现方案建议
-- 结构化输出
-- 必要时支持人工审核
+```bash
+# 查看当前配置
+.venv/bin/python -m src.main info
 
-### 暂不考虑
+# 查看 CLI 帮助
+.venv/bin/python -m src.main --help
+```
 
-- 多仓库支持
-- 通用型 Coding Agent
-- 自动改代码 / 自动提交 PR
-- 自动生成任意 Skill
-- 复杂多 Agent 编排
-- 生产环境部署能力
+正常输出示例：
 
----
-
-## 第一版 Skills
-
-### 1. 仓库背景知识 Skill
-
-用途：
-
-- 解释这个仓库是做什么的
-- 总结主要模块和模块职责
-- 识别关键目录、入口文件、配置位置
-
-典型输出：
-
-- 仓库整体功能概述
-- 核心模块列表
-- 关键目录说明
-- 主要入口位置
-- 配置与扩展点
+```
+╭──────────────────── 当前配置 ────────────────────╮
+│ 目标仓库: /Users/you/IdeaProjects/your-project    │
+│ 模型: qwen-plus                                   │
+│ API Base: https://dashscope.aliyuncs.com/...       │
+│ 最大上下文 Tokens: 8000                            │
+│ 人工审核: 关闭                                     │
+╰──────────────────────────────────────────────────╯
+```
 
 ---
 
-### 2. 代码逻辑链路分析 Skill
+## 两种使用方式
 
-用途：
+PaySkillCreator 提供 **Web UI** 和 **CLI** 两种使用方式，功能完全等价。
 
-- 分析某个接口、方法、类或功能对应的代码调用链路
-- 找出关键调用关系、主要分支和依赖模块
-- 帮助理解某个功能是如何在代码中流转的
+### 方式一：Web UI（推荐）
 
-典型输出：
+```bash
+# 启动 Web 服务
+.venv/bin/python -m uvicorn web.server:app --host 127.0.0.1 --port 8000
+```
 
-- 入口点
-- 主要调用链
-- 关键分支逻辑
-- 依赖模块
-- 风险点与不确定点
+浏览器访问 **http://localhost:8000** ，在左侧填入仓库路径，在对话框中输入问题即可。
 
----
+支持特性：
+- 实时进度显示（路由 → 检索 → 分析 → 格式化，SSE 流式推送）
+- Markdown 结构化结果渲染
+- Skill 选择（自动路由 / 手动指定）
+- 对话式交互，可连续提问
+- 快捷问题一键发送
 
-### 3. 需求方案建议 Skill
+### 方式二：CLI
 
-用途：
+### 基本语法
 
-- 根据一个需求描述，分析可能涉及的模块和改动点
-- 给出一个可行的实现思路
-- 提供影响面与测试建议
+```bash
+.venv/bin/python -m src.main run "<你的问题>" [选项]
+```
 
-典型输出：
+### CLI 参数一览
 
-- 需求理解
-- 候选改动点
-- 推荐实现路径
-- 影响范围
-- 风险分析
-- 验证与测试建议
-
----
-
-## 输入与输出
-
-### 输入
-
-第一版系统的输入包括：
-
-- 目标仓库路径
-- Skill 类型
-- 用户问题或任务描述
-
-例如：
-
-- “请介绍这个仓库的核心模块”
-- “请分析订单提交流程的代码链路”
-- “针对这个需求，给出一个可行的实现方案”
-
-### 输出
-
-第一版系统输出为结构化分析结果，例如：
-
-- 结论摘要
-- 相关文件
-- 入口点
-- 调用链路
-- 涉及模块
-- 风险点
-- 不确定项
-- 后续建议
+| 参数 | 缩写 | 说明 | 默认值 |
+|---|---|---|---|
+| `query` | — | 问题或任务描述（必填） | — |
+| `--repo` | `-r` | 目标仓库路径（覆盖 .env） | .env 中的 TARGET_REPO_PATH |
+| `--skill` | `-s` | 指定 Skill 类型（不指定则自动路由） | 自动 |
+| `--review` | — | 启用人工审核 | 关闭 |
+| `--verbose` | `-v` | 启用详细日志 | 关闭 |
 
 ---
 
-## 设计原则
+## 三个核心 Skill
 
-本项目遵循以下几个原则：
+### Skill 1: 仓库背景知识 (`repo_background`)
 
-### 1. 先做窄，再做宽
-优先解决一个边界明确的小问题，而不是一开始追求通用能力。
+**用途**: 了解一个仓库整体是做什么的、有哪些模块、技术栈是什么。
 
-### 2. 先定义 Skill，再谈自治
-第一版重点是手工定义少量高价值 Skill，而不是让模型自动生成无限多能力。
+```bash
+# 自动路由（LLM 会识别出这是 repo_background 类型）
+.venv/bin/python -m src.main run "这个项目的技术栈和整体架构是什么"
 
-### 3. 先做分析，再做执行
-第一版聚焦“理解、分析、建议”，不急于进入自动改代码或自动执行阶段。
+# 手动指定 Skill
+.venv/bin/python -m src.main run "请介绍这个仓库" --skill repo_background
+```
 
-### 4. 先结构化，再做体验优化
-优先保证输出稳定、工作流清晰、结果可评估，而不是优先做交互体验。
+**适合的问题**:
+- "请介绍一下这个仓库"
+- "主要有哪些模块，各自职责是什么"
+- "项目入口在哪里"
+- "技术栈和依赖有哪些"
 
-### 5. 所有结论都应尽量基于仓库上下文
-Agent 的输出应尽可能建立在实际代码与仓库结构之上，而不是脱离代码进行泛化回答。
-
----
-
-## 预期工作流
-
-第一版计划采用如下最小工作流：
-
-1. 接收用户任务
-2. 选择对应 Skill
-3. 检索相关仓库上下文
-4. 执行对应 Skill 分析
-5. 输出结构化结果
-6. 在需要时支持人工审核
+**输出内容**: 仓库概述 → 核心模块列表 → 关键目录 → 入口位置 → 配置扩展点
 
 ---
 
-## 项目结构规划
+### Skill 2: 代码逻辑链路分析 (`chain_analysis`)
 
-计划中的目录结构如下：
+**用途**: 追踪某个接口 / 方法 / 类的代码调用链路，理解代码执行流程。
 
-```text
-src/
-  graph/
-  skills/
-  tools/
-  prompts/
-  schemas/
-evals/
-.cursor/rules/
+```bash
+# 自动路由
+.venv/bin/python -m src.main run "分析支付下单的调用链路"
+
+# 手动指定
+.venv/bin/python -m src.main run "分析 PaywayRoutingService 的调用链路" --skill chain_analysis
+```
+
+**适合的问题**:
+- "分析 OrderService.createOrder 做了什么"
+- "支付接口的代码怎么走的"
+- "这个方法调用了哪些下游服务"
+- "帮我看看退款流程的调用链"
+
+**输出内容**: 入口点 → 主调用链（含文件路径）→ 关键分支逻辑 → 依赖模块 → 风险点
+
+> 此 Skill 内部使用 **ReAct Agent** 多轮调用代码分析工具，自动搜索、解析、追踪。分析深度 3-5 层，耗时相对较长（约 60s）。
+
+---
+
+### Skill 3: 需求方案建议 (`plan_suggestion`)
+
+**用途**: 提出一个开发需求，获得可行的实现方案、改动点和风险分析。
+
+```bash
+# 自动路由
+.venv/bin/python -m src.main run "如何添加数字人民币支付方式"
+
+# 手动指定
+.venv/bin/python -m src.main run "为支付收银台添加数字人民币支付方式" --skill plan_suggestion
+```
+
+**适合的问题**:
+- "如果要加一个退款功能该改哪里"
+- "给出添加缓存的实现方案"
+- "这个需求的影响范围有多大"
+- "如何实现支付渠道的灰度上线"
+
+**输出内容**: 需求理解 → 候选改动点 → 推荐实现路径 → 影响范围 → 风险分析 → 测试建议
+
+---
+
+## 自动路由 vs 手动指定
+
+**推荐使用自动路由**（不加 `--skill` 参数），LLM 会根据问题内容自动判断使用哪个 Skill：
+
+| 你问的问题类型 | 路由到的 Skill |
+|---|---|
+| "是什么"、"有什么" → 了解仓库 | `repo_background` |
+| "怎么走的"、"调用了什么" → 追踪代码 | `chain_analysis` |
+| "怎么做"、"该改哪里" → 实现方案 | `plan_suggestion` |
+
+如果 LLM 路由不符合预期，可以通过 `--skill` 强制指定。
+
+---
+
+## 高级用法
+
+### 分析不同仓库
+
+```bash
+# 临时指定另一个仓库（不修改 .env）
+.venv/bin/python -m src.main run "介绍这个项目" --repo /path/to/another/repo
+```
+
+### 启用人工审核
+
+```bash
+# 分析完成后暂停，等待审核确认
+.venv/bin/python -m src.main run "分析支付链路" --review
+```
+
+### 查看详细日志
+
+```bash
+# 开启 verbose 模式，输出每个节点的执行日志
+.venv/bin/python -m src.main run "介绍这个仓库" -v
+```
+
+### 环境变量配置项
+
+| 变量 | 说明 | 默认值 |
+|---|---|---|
+| `OPENAI_API_KEY` | LLM API Key（**必填**）| — |
+| `OPENAI_BASE_URL` | API 接口地址 | `https://api.openai.com/v1` |
+| `MODEL_NAME` | 模型名称 | `gpt-4o` |
+| `TARGET_REPO_PATH` | 目标仓库路径（**必填**）| — |
+| `LOG_LEVEL` | 日志级别 | `INFO` |
+| `MAX_CONTEXT_TOKENS` | 最大上下文 token 数 | `8000` |
+| `NEED_HUMAN_REVIEW` | 默认启用人工审核 | `false` |
+
+---
+
+## 工作流架构
+
+```
+用户输入
+  │
+  ▼
+┌──────────────┐
+│ Skill Router │ ← LLM 意图识别 / 关键词 fallback / 用户指定
+└──────┬───────┘
+       ▼
+┌──────────────────┐
+│ Context Retriever│ ← 目录扫描 + 关键文件 + 代码搜索 + 语义搜索
+└──────┬───────────┘
+       ▼
+┌──────────────────┐
+│ Skill Executor   │ ← 调用对应 Skill（LLM + 工具链）
+└──────┬───────────┘
+       ▼
+┌──────────────┐
+│  Formatter   │ ← Pydantic Schema → Markdown 结构化输出
+└──────┬───────┘
+       ▼
+┌──────────────────┐
+│ Human Review     │ ← 可选，需要时暂停等待审核
+└──────┬───────────┘
+       ▼
+     输出结果
+```
+
+---
+
+## 项目结构
+
+```
+PaySkillCreator/
+├── src/
+│   ├── main.py              # CLI 入口（Typer）
+│   ├── config.py            # 配置管理（读取 .env）
+│   ├── state.py             # LangGraph AgentState 定义
+│   ├── graph/
+│   │   ├── builder.py       # StateGraph 构建与编排
+│   │   └── nodes.py         # 5 个节点函数实现
+│   ├── skills/
+│   │   ├── base.py          # Skill 抽象基类
+│   │   ├── repo_background.py
+│   │   ├── chain_analysis.py
+│   │   └── plan_suggestion.py
+│   ├── tools/
+│   │   ├── file_reader.py   # 文件读取 / 目录扫描
+│   │   ├── code_search.py   # 代码搜索（ripgrep）
+│   │   ├── tree_parser.py   # AST 解析（tree-sitter）
+│   │   └── vector_search.py # 语义搜索（FAISS + TF-IDF）
+│   ├── prompts/             # 各 Skill 的 Prompt 模板
+│   └── schemas/             # Pydantic 输入/输出 Schema
+├── web/
+│   ├── server.py            # FastAPI 后端（API + SSE 流式）
+│   └── static/
+│       ├── index.html       # 前端页面
+│       ├── style.css        # 暗色主题样式
+│       └── app.js           # 前端交互逻辑
+├── evals/                   # 测试与评估
+│   ├── test_tools.py        # 工具层单元测试
+│   ├── test_router.py       # 路由准确率评估
+│   └── test_graph.py        # 端到端集成测试
+├── .env.example             # 配置模板
+├── requirements.txt         # 依赖清单
+├── pyproject.toml           # 项目配置
+└── DEVELOPMENT.md           # 开发者指南
+```
+
+---
+
+## 测试
+
+```bash
+# 运行本地测试（不需要 API Key，34 项）
+.venv/bin/python -m pytest evals/ -v -k "not llm and not slow"
+
+# 运行全量测试（需要 .env 配置好，41 项）
+.venv/bin/python -m pytest evals/ -v -s
+
+# 只运行路由准确率评估
+.venv/bin/python -m pytest evals/test_router.py -v -s -k "llm"
+```
+
+---
+
+## 常见问题
+
+### Q: 支持哪些 LLM？
+
+任何兼容 OpenAI 接口格式的 LLM 都可以使用，包括：
+- **阿里云百炼**: qwen-plus / qwen-max / qwen-turbo
+- **OpenAI**: gpt-4o / gpt-4o-mini
+- **本地部署**: 通过 Ollama / vLLM 等暴露的 OpenAI 兼容接口
+
+只需在 `.env` 中修改 `OPENAI_BASE_URL` 和 `MODEL_NAME`。
+
+### Q: 支持分析哪些语言的仓库？
+
+当前主要针对 **Java** 仓库优化（AST 解析、符号搜索模式等），但基础功能（目录扫描、文本搜索、LLM 分析）对任何语言仓库都可用。
+
+### Q: chain_analysis 为什么比较慢？
+
+chain_analysis 内部使用 **ReAct Agent** 进行多轮工具调用（搜索代码 → 解析结构 → 提取方法 → 追踪调用），通常需要 5-15 轮 LLM 交互。使用 `qwen-plus` 通常需要 30-60 秒。
+
+### Q: 如何提高分析质量？
+
+1. **使用更强的模型**: `qwen-max` 或 `gpt-4o` 对复杂链路分析效果更好
+2. **增大上下文窗口**: 在 `.env` 中调大 `MAX_CONTEXT_TOKENS`（如 16000）
+3. **问题描述尽量具体**: "分析 OrderService.createOrder 的调用链" 比 "分析下单流程" 更精确
+
+### Q: 出现 "配置错误: OPENAI_API_KEY is required" 怎么办？
+
+确保 `.env` 文件存在且 `OPENAI_API_KEY` 已正确填入。可以运行 `info` 命令检查：
+
+```bash
+.venv/bin/python -m src.main info
+```

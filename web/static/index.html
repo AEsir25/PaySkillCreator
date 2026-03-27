@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PaySkillCreator</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <!-- 侧边栏 -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>PaySkillCreator</h1>
+        <p class="subtitle">单仓库分析 Agent</p>
+      </div>
+
+      <div class="sidebar-section">
+        <label for="repoPath">仓库路径</label>
+        <div class="input-group">
+          <input type="text" id="repoPath" placeholder="/path/to/your/repo" spellcheck="false">
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <label>Skill 选择</label>
+        <div class="radio-group">
+          <label class="radio-item">
+            <input type="radio" name="skill" value="" checked>
+            <span class="radio-label">自动路由</span>
+            <span class="radio-hint">LLM 智能判断</span>
+          </label>
+          <label class="radio-item">
+            <input type="radio" name="skill" value="repo_background">
+            <span class="radio-label">仓库背景知识</span>
+            <span class="radio-hint">架构 / 模块 / 技术栈</span>
+          </label>
+          <label class="radio-item">
+            <input type="radio" name="skill" value="chain_analysis">
+            <span class="radio-label">代码链路分析</span>
+            <span class="radio-hint">调用链 / 执行流程</span>
+          </label>
+          <label class="radio-item">
+            <input type="radio" name="skill" value="plan_suggestion">
+            <span class="radio-label">需求方案建议</span>
+            <span class="radio-hint">改动点 / 影响范围</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <label>模型</label>
+        <div id="modelInfo" class="info-badge">加载中...</div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button id="clearBtn" class="btn-secondary">清空对话</button>
+      </div>
+    </aside>
+
+    <!-- 主区域 -->
+    <main class="main">
+      <div class="chat-area" id="chatArea">
+        <div class="welcome-message">
+          <h2>欢迎使用 PaySkillCreator</h2>
+          <p>输入你的问题，开始分析目标仓库。</p>
+          <div class="quick-actions">
+            <button class="quick-btn" data-query="请介绍这个仓库的整体架构和核心模块">仓库架构概览</button>
+            <button class="quick-btn" data-query="分析支付下单的调用链路">支付链路分析</button>
+            <button class="quick-btn" data-query="添加一个新的支付渠道需要改哪些地方">新增支付渠道方案</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="input-area">
+        <div class="input-wrapper">
+          <textarea
+            id="queryInput"
+            placeholder="输入你的问题，例如：分析 OrderService 的调用链路..."
+            rows="1"
+          ></textarea>
+          <button id="sendBtn" class="btn-primary" disabled>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 2L11 13"/>
+              <path d="M22 2L15 22L11 13L2 9L22 2Z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

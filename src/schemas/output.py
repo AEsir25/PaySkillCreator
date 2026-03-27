@@ -5,6 +5,10 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+# ---------------------------------------------------------------------------
+# 分析型 Skill 输出 Schema
+# ---------------------------------------------------------------------------
+
 class Module(BaseModel):
     """模块描述"""
 
@@ -51,3 +55,60 @@ class PlanSuggestionOutput(BaseModel):
     impact_scope: list[str] = Field(default_factory=list, description="影响范围")
     risk_analysis: list[str] = Field(default_factory=list, description="风险分析")
     test_suggestions: list[str] = Field(default_factory=list, description="验证与测试建议")
+
+
+# ---------------------------------------------------------------------------
+# SKILL.md 生成 Schema
+# ---------------------------------------------------------------------------
+
+class SkillSpecOutput(BaseModel):
+    """SKILL.md 生成的结构化 Skill 规格"""
+
+    name: str = Field(
+        ...,
+        description="Skill 名称，简短、可作为目录前缀，例如 jdpaysdk-callchain-skill",
+    )
+    description: str = Field(
+        ...,
+        description="一句话说清这个 Skill 做什么、面向什么仓库",
+    )
+    use_when: list[str] = Field(
+        default_factory=list,
+        description="触发条件列表：什么情况下应该使用此 Skill",
+    )
+    do_not_use_when: list[str] = Field(
+        default_factory=list,
+        description="排除条件：什么情况下不该使用此 Skill",
+    )
+    required_inputs: list[str] = Field(
+        default_factory=list,
+        description="用户必须提供的输入，例如类名、方法名、需求描述",
+    )
+    workflow_steps: list[str] = Field(
+        default_factory=list,
+        description="执行此 Skill 时的具体工作步骤（按顺序）",
+    )
+    key_paths: list[str] = Field(
+        default_factory=list,
+        description="仓库中与此 Skill 相关的关键文件和目录路径",
+    )
+    commands: list[str] = Field(
+        default_factory=list,
+        description="可能用到的构建/运行/测试命令",
+    )
+    validation_checks: list[str] = Field(
+        default_factory=list,
+        description="如何验证 Skill 执行结果是否正确",
+    )
+    example_requests: list[str] = Field(
+        default_factory=list,
+        description="用户可能提出的示例请求（2-4 个具体例子）",
+    )
+    assumptions: list[str] = Field(
+        default_factory=list,
+        description="前置假设与约束条件",
+    )
+    final_markdown: str = Field(
+        ...,
+        description="最终可直接写入 SKILL.md 的完整 Markdown 内容",
+    )

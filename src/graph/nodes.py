@@ -12,7 +12,7 @@ import time
 import tiktoken
 from langgraph.types import interrupt
 
-from src.state import VALID_SKILLS, AgentState
+from src.state import ANALYSIS_SKILLS, VALID_SKILLS, AgentState
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +113,8 @@ def _llm_route(query: str) -> tuple[str | None, str]:
 def _keyword_route(query: str) -> str:
     """基于关键词的 fallback 路由。"""
     q = query.lower()
+    if any(kw in q for kw in ("skill.md", "skill 文件", "生成 skill", "generate skill", "沉淀为 skill", "创建 skill")):
+        return "generate_skill"
     if any(kw in q for kw in ("链路", "调用", "流程", "chain", "trace", "调用链")):
         return "chain_analysis"
     if any(kw in q for kw in ("需求", "方案", "实现", "plan", "设计")):
@@ -188,6 +190,27 @@ def context_retriever(state: AgentState) -> dict:
         except Exception as e:
             logger.warning("语义搜索失败，跳过: %s", e)
 
+    elif skill_type == "generate_skill":
+        parts.append(list_directory.invoke({
+            "dir_path": repo_path, "repo_path": repo_path, "max_depth": 3,
+        }))
+        parts.append(read_key_files.invoke({"repo_path": repo_path}))
+        keywords = _extract_search_terms(query)
+        for kw in keywords[:3]:
+            r = search_code.invoke({
+                "pattern": kw, "repo_path": repo_path, "max_results": 10,
+            })
+            if "未找到" not in r:
+                parts.append(r)
+        try:
+            sem = semantic_search.invoke({
+                "query": query, "repo_path": repo_path, "top_k": 5,
+            })
+            if "未找到" not in sem:
+                parts.append(sem)
+        except Exception as e:
+            logger.warning("语义搜索失败，跳过: %s", e)
+
     context = _truncate_context(parts, max_tokens)
     total_tokens = sum(_estimate_tokens(c) for c in context)
     logger.info("检索完成: %d 段上下文, ~%d tokens", len(context), total_tokens)
@@ -223,11 +246,16 @@ _SEARCH_STOP_WORDS = {
 # ---------------------------------------------------------------------------
 
 def skill_executor(state: AgentState) -> dict:
-    """调用对应 Skill 执行分析。"""
+    """调用对应 Skill 执行分析。
+
+    当 skill_type == "generate_skill" 时，运行多个上游分析 Skill 并将结果
+    汇总到 analysis_results 中；否则按原有逻辑运行单个 Skill。
+    """
     from src.config import get_llm, get_settings
     from src.skills.chain_analysis import ChainAnalysisSkill
     from src.skills.plan_suggestion import PlanSuggestionSkill
     from src.skills.repo_background import RepoBackgroundSkill
+    from src.skills.skill_generator import SkillGeneratorSkill
 
     skill_type = state.get("skill_type", "repo_background")
     repo_path = state.get("repo_path", "")
@@ -236,6 +264,9 @@ def skill_executor(state: AgentState) -> dict:
     metadata = dict(state.get("metadata", {}))
 
     logger.info("执行 Skill: %s", skill_type)
+
+    if skill_type == "generate_skill":
+        return _execute_generate_skill(query, repo_path, context, metadata)
 
     skill_map = {
         "repo_background": RepoBackgroundSkill,
@@ -273,6 +304,35 @@ def skill_executor(state: AgentState) -> dict:
         }
 
 
+def _execute_generate_skill(
+    query: str, repo_path: str, context: list[str], metadata: dict
+) -> dict:
+    """运行上游分析 Skill (repo_background + plan_suggestion) 并汇总结果。"""
+    from src.config import get_llm, get_settings
+    from src.skills.skill_generator import SkillGeneratorSkill
+
+    try:
+        settings = get_settings()
+        llm = get_llm(settings)
+        metadata["model"] = settings.llm.model_name
+
+        t0 = time.time()
+        generator = SkillGeneratorSkill(llm=llm, repo_path=repo_path)
+        analysis_results = generator.execute(query, context)
+        elapsed_ms = int((time.time() - t0) * 1000)
+
+        metadata["analysis_elapsed_ms"] = elapsed_ms
+        logger.info("上游分析完成: %d ms", elapsed_ms)
+        return {"analysis_results": analysis_results, "metadata": metadata}
+    except Exception as e:
+        logger.exception("generate_skill 上游分析失败: %s", e)
+        return {
+            "analysis_results": {},
+            "error": f"上游分析失败: {e}",
+            "metadata": metadata,
+        }
+
+
 # ---------------------------------------------------------------------------
 # Node 4: 格式化输出（基于 Pydantic Schema）
 # ---------------------------------------------------------------------------
@@ -281,18 +341,21 @@ from src.schemas.output import (
     ChainAnalysisOutput,
     PlanSuggestionOutput,
     RepoBackgroundOutput,
+    SkillSpecOutput,
 )
 
 _SKILL_TITLES: dict[str, str] = {
     "repo_background": "仓库背景知识分析",
     "chain_analysis": "代码逻辑链路分析",
     "plan_suggestion": "需求方案建议",
+    "generate_skill": "SKILL.md 生成",
 }
 
 _SCHEMA_MAP: dict[str, type] = {
     "repo_background": RepoBackgroundOutput,
     "chain_analysis": ChainAnalysisOutput,
     "plan_suggestion": PlanSuggestionOutput,
+    "generate_skill": SkillSpecOutput,
 }
 
 
@@ -398,7 +461,116 @@ def _format_dict_fallback(result: dict) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Node 5: 人工审核
+# Node 5: Skill Spec 生成（generate_skill 专用）
+# ---------------------------------------------------------------------------
+
+def skill_spec_generator(state: AgentState) -> dict:
+    """基于上游分析结果生成结构化 Skill 规格。"""
+    from src.config import get_llm, get_settings
+    from src.skills.skill_generator import SkillGeneratorSkill
+
+    query = state.get("user_query", "")
+    repo_path = state.get("repo_path", "")
+    analysis_results = state.get("analysis_results", {})
+    context = state.get("retrieved_context", [])
+    metadata = dict(state.get("metadata", {}))
+
+    logger.info("生成 Skill Spec...")
+
+    try:
+        settings = get_settings()
+        llm = get_llm(settings)
+        t0 = time.time()
+
+        generator = SkillGeneratorSkill(llm=llm, repo_path=repo_path)
+        spec = generator.generate_spec(query, analysis_results, context)
+        elapsed_ms = int((time.time() - t0) * 1000)
+
+        metadata["spec_elapsed_ms"] = elapsed_ms
+        logger.info("Skill Spec 生成完成: %s (%d ms)", spec.get("name"), elapsed_ms)
+        return {"skill_spec": spec, "metadata": metadata}
+    except Exception as e:
+        logger.exception("Skill Spec 生成失败: %s", e)
+        return {"skill_spec": {}, "error": f"Spec 生成失败: {e}", "metadata": metadata}
+
+
+# ---------------------------------------------------------------------------
+# Node 6: Skill Markdown 渲染（generate_skill 专用）
+# ---------------------------------------------------------------------------
+
+def skill_md_formatter(state: AgentState) -> dict:
+    """将结构化 Skill 规格渲染为 SKILL.md 内容并写入 formatted_output。"""
+    from src.config import get_llm, get_settings
+    from src.skills.skill_generator import SkillGeneratorSkill
+
+    spec = state.get("skill_spec", {})
+    repo_path = state.get("repo_path", "")
+    metadata = dict(state.get("metadata", {}))
+    error = state.get("error")
+
+    if error or not spec:
+        fallback = f"# SKILL.md 生成失败\n\n> 错误: {error or '无 Skill Spec 数据'}\n"
+        return {"formatted_output": fallback}
+
+    logger.info("渲染 SKILL.md...")
+
+    try:
+        settings = get_settings()
+        llm = get_llm(settings)
+        t0 = time.time()
+
+        generator = SkillGeneratorSkill(llm=llm, repo_path=repo_path)
+        markdown = generator.render_markdown(spec)
+        elapsed_ms = int((time.time() - t0) * 1000)
+
+        metadata["render_elapsed_ms"] = elapsed_ms
+        total_ms = (
+            metadata.get("analysis_elapsed_ms", 0)
+            + metadata.get("spec_elapsed_ms", 0)
+            + elapsed_ms
+        )
+        metadata["skill_elapsed_ms"] = total_ms
+
+        logger.info("SKILL.md 渲染完成: %d chars (%d ms)", len(markdown), elapsed_ms)
+        return {"formatted_output": markdown, "metadata": metadata}
+    except Exception as e:
+        logger.exception("SKILL.md 渲染失败: %s", e)
+        fallback_md = _render_spec_fallback(spec)
+        return {"formatted_output": fallback_md, "metadata": metadata}
+
+
+def _render_spec_fallback(spec: dict) -> str:
+    """当 LLM 渲染失败时，基于结构化数据直接生成 Markdown。"""
+    name = spec.get("name", "unnamed-skill")
+    lines = [f"# {name}", ""]
+    lines.append(spec.get("description", ""))
+    lines.append("")
+
+    section_map = [
+        ("When To Use", "use_when"),
+        ("Do Not Use When", "do_not_use_when"),
+        ("Required Inputs", "required_inputs"),
+        ("Workflow", "workflow_steps"),
+        ("Key Paths", "key_paths"),
+        ("Commands", "commands"),
+        ("Validation", "validation_checks"),
+        ("Example Requests", "example_requests"),
+        ("Assumptions", "assumptions"),
+    ]
+    for title, key in section_map:
+        items = spec.get(key, [])
+        if items:
+            lines.append(f"## {title}")
+            lines.append("")
+            for item in items:
+                lines.append(f"- {item}")
+            lines.append("")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Node 7: 人工审核
 # ---------------------------------------------------------------------------
 
 def human_review(state: AgentState) -> dict:

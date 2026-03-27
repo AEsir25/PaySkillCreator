@@ -5,9 +5,15 @@ from __future__ import annotations
 from typing import Literal, TypedDict
 
 
-SkillType = Literal["repo_background", "chain_analysis", "plan_suggestion"]
+SkillType = Literal[
+    "repo_background", "chain_analysis", "plan_suggestion", "generate_skill"
+]
 
-VALID_SKILLS: set[str] = {"repo_background", "chain_analysis", "plan_suggestion"}
+VALID_SKILLS: set[str] = {
+    "repo_background", "chain_analysis", "plan_suggestion", "generate_skill",
+}
+
+ANALYSIS_SKILLS: set[str] = {"repo_background", "chain_analysis", "plan_suggestion"}
 
 
 class AgentState(TypedDict, total=False):
@@ -22,8 +28,14 @@ class AgentState(TypedDict, total=False):
     # --- 检索到的仓库上下文 ---
     retrieved_context: list[str]
 
-    # --- Skill 执行结果 ---
+    # --- Skill 执行结果（单 skill 分析） ---
     skill_result: dict
+
+    # --- generate_skill 流程: 多 skill 分析结果汇总 ---
+    analysis_results: dict
+
+    # --- generate_skill 流程: 结构化 skill 规格 ---
+    skill_spec: dict
 
     # --- 格式化输出 ---
     formatted_output: str

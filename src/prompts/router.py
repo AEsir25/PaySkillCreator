@@ -10,9 +10,9 @@ from pydantic import BaseModel, Field
 class RouterOutput(BaseModel):
     """LLM 路由输出"""
 
-    skill_type: Literal["repo_background", "chain_analysis", "plan_suggestion"] = Field(
-        ..., description="选择的 Skill 类型"
-    )
+    skill_type: Literal[
+        "repo_background", "chain_analysis", "plan_suggestion", "generate_skill"
+    ] = Field(..., description="选择的 Skill 类型")
     reason: str = Field(..., description="选择该 Skill 的原因（一句话）")
 
 
@@ -52,12 +52,24 @@ SYSTEM_PROMPT = """\
 - "给出添加缓存的实现方案"
 - "这个需求的影响范围有多大"
 
+### generate_skill — 生成 SKILL.md 文件
+适用场景：
+- 用户想要为仓库生成一个 SKILL.md 文件
+- 想要把对仓库某种能力的理解沉淀为可复用的 Skill 定义
+- 涉及"生成 skill"、"创建 SKILL.md"、"沉淀为 skill"、"生成技能文件"
+典型问题：
+- "为这个仓库生成一个调用链分析的 SKILL.md"
+- "帮我创建一个支付渠道开发的 skill 文件"
+- "生成一个 skill，让 AI 能分析这个仓库的代码链路"
+- "把代码链路追踪能力沉淀为 SKILL.md"
+
 ## 判断规则
 
 1. 如果用户在问"是什么"、"有什么" → repo_background
 2. 如果用户在问"怎么走的"、"调用了什么" → chain_analysis
 3. 如果用户在问"怎么做"、"该改哪里" → plan_suggestion
-4. 如果不确定，默认选 repo_background
+4. 如果用户想要生成 SKILL.md / 创建 skill 定义 → generate_skill
+5. 如果不确定，默认选 repo_background
 """
 
 USER_TEMPLATE = "用户问题: {query}"
