@@ -6,7 +6,7 @@ const queryInput = $("#queryInput");
 const sendBtn = $("#sendBtn");
 const clearBtn = $("#clearBtn");
 const repoPathInput = $("#repoPath");
-const modelInfo = $("#modelInfo");
+const modelSelect = $("#modelSelect");
 
 let isAnalyzing = false;
 let currentSkillType = null;
@@ -18,15 +18,44 @@ async function init() {
     const res = await fetch("/api/config");
     const cfg = await res.json();
     repoPathInput.value = cfg.repo_path || "";
-    modelInfo.textContent = cfg.model_name || "unknown";
+    populateModelSelect(cfg.models || [], cfg.default_model || "");
   } catch {
-    modelInfo.textContent = "连接失败";
+    modelSelect.innerHTML = '<option value="">连接失败</option>';
   }
   queryInput.addEventListener("input", onInputChange);
   queryInput.addEventListener("keydown", onKeyDown);
   sendBtn.addEventListener("click", doSend);
   clearBtn.addEventListener("click", clearChat);
   bindQuickButtons();
+}
+
+function populateModelSelect(models, defaultModel) {
+  modelSelect.innerHTML = "";
+  if (!models.length) {
+    modelSelect.innerHTML = '<option value="">无可用模型</option>';
+    return;
+  }
+
+  const grouped = {};
+  for (const m of models) {
+    const group = m.provider || "其他";
+    if (!grouped[group]) grouped[group] = [];
+    grouped[group].push(m);
+  }
+
+  for (const [provider, items] of Object.entries(grouped)) {
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = provider;
+    for (const m of items) {
+      const opt = document.createElement("option");
+      opt.value = m.id;
+      opt.textContent = `${m.name}`;
+      if (m.description) opt.title = m.description;
+      if (m.id === defaultModel) opt.selected = true;
+      optgroup.appendChild(opt);
+    }
+    modelSelect.appendChild(optgroup);
+  }
 }
 
 function bindQuickButtons() {
@@ -88,7 +117,7 @@ async function doSend() {
     const res = await fetch("/api/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ repo_path: repoPath, query, skill }),
+      body: JSON.stringify({ repo_path: repoPath, query, skill, model: modelSelect.value || null }),
     });
 
     await processSSE(res.body, progressEl, contentEl, metaEl);

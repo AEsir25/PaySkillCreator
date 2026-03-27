@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
-from src.config import Settings, get_settings
+from src.config import Settings, get_available_models, get_default_model_id, get_settings
 from src.graph.builder import build_graph
 
 app = typer.Typer(
@@ -57,6 +57,9 @@ def run(
         "-s",
         help="指定 Skill 类型: repo_background / chain_analysis / plan_suggestion / generate_skill",
     ),
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m", help="指定模型 ID（如 qwen-plus, qwen-max, abab6.5s-chat）",
+    ),
     review: bool = typer.Option(False, "--review", help="启用人工审核"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="启用详细日志"),
 ) -> None:
@@ -70,12 +73,14 @@ def run(
         console.print(f"[red]配置错误: {e}[/red]")
         raise typer.Exit(code=1)
 
+    model_id = model or get_default_model_id()
+
     console.print(
         Panel(
             f"[bold]仓库:[/bold] {settings.target_repo_path}\n"
             f"[bold]问题:[/bold] {query}\n"
             f"[bold]Skill:[/bold] {skill or '自动路由'}\n"
-            f"[bold]模型:[/bold] {settings.llm.model_name}",
+            f"[bold]模型:[/bold] {model_id}",
             title="PaySkillCreator",
             border_style="blue",
         )
@@ -86,6 +91,7 @@ def run(
         "repo_path": settings.target_repo_path,
         "user_query": query,
         "requested_skill": skill,
+        "model_id": model_id,
         "need_review": need_review,
         "metadata": {},
     }
@@ -119,6 +125,9 @@ def generate_skill(
     output_path: Optional[str] = typer.Option(
         None, "--output", "-o", help="SKILL.md 输出路径（默认输出到终端）"
     ),
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m", help="指定模型 ID（如 qwen-plus, qwen-max, abab6.5s-chat）",
+    ),
     review: bool = typer.Option(False, "--review", help="启用人工审核"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="启用详细日志"),
 ) -> None:
@@ -132,12 +141,14 @@ def generate_skill(
         console.print(f"[red]配置错误: {e}[/red]")
         raise typer.Exit(code=1)
 
+    model_id = model or get_default_model_id()
+
     console.print(
         Panel(
             f"[bold]仓库:[/bold] {settings.target_repo_path}\n"
             f"[bold]需求:[/bold] {query}\n"
             f"[bold]模式:[/bold] SKILL.md 生成\n"
-            f"[bold]模型:[/bold] {settings.llm.model_name}",
+            f"[bold]模型:[/bold] {model_id}",
             title="PaySkillCreator — Generate SKILL.md",
             border_style="magenta",
         )
@@ -148,6 +159,7 @@ def generate_skill(
         "repo_path": settings.target_repo_path,
         "user_query": query,
         "requested_skill": "generate_skill",
+        "model_id": model_id,
         "need_review": need_review,
         "metadata": {},
     }
@@ -181,13 +193,23 @@ def generate_skill(
 def info() -> None:
     """显示当前配置信息"""
     settings = get_settings()
+    models = get_available_models()
+    default_model = get_default_model_id()
+
+    model_lines: list[str] = []
+    for m in models:
+        marker = " [green]← 默认[/green]" if m["id"] == default_model else ""
+        model_lines.append(f"  {m['id']:20s}  {m['provider']:10s}  {m['description']}{marker}")
+
+    models_text = "\n".join(model_lines) if model_lines else "  (无可用模型，请在 .env 中配置 API Key)"
+
     console.print(
         Panel(
             f"[bold]目标仓库:[/bold] {settings.target_repo_path or '(未配置)'}\n"
-            f"[bold]模型:[/bold] {settings.llm.model_name}\n"
-            f"[bold]API Base:[/bold] {settings.llm.base_url}\n"
+            f"[bold]默认模型:[/bold] {default_model}\n"
             f"[bold]最大上下文 Tokens:[/bold] {settings.max_context_tokens}\n"
-            f"[bold]人工审核:[/bold] {'启用' if settings.need_human_review else '关闭'}",
+            f"[bold]人工审核:[/bold] {'启用' if settings.need_human_review else '关闭'}\n\n"
+            f"[bold]可用模型:[/bold]\n{models_text}",
             title="当前配置",
             border_style="green",
         )

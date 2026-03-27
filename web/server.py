@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from src.config import Settings, get_settings
+from src.config import Settings, get_available_models, get_default_model_id, get_settings
 from src.graph.builder import build_graph
 from src.state import VALID_SKILLS
 
@@ -37,6 +37,7 @@ class AnalyzeRequest(BaseModel):
     repo_path: str
     query: str
     skill: str | None = None
+    model: str | None = None
 
 
 _NODE_LABELS: dict[str, tuple[str, str]] = {
@@ -67,6 +68,8 @@ async def get_config():
         "model_name": settings.llm.model_name,
         "max_context_tokens": settings.max_context_tokens,
         "skills": list(VALID_SKILLS),
+        "models": get_available_models(),
+        "default_model": get_default_model_id(),
     }
 
 
@@ -104,6 +107,7 @@ def _run_analysis(req: AnalyzeRequest):
         "repo_path": repo_path,
         "user_query": req.query,
         "requested_skill": req.skill if req.skill in VALID_SKILLS else None,
+        "model_id": req.model or None,
         "need_review": False,
         "metadata": {},
     }

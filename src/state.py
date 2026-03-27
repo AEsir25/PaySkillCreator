@@ -21,6 +21,7 @@ class AgentState(TypedDict, total=False):
     repo_path: str
     user_query: str
     requested_skill: str | None
+    model_id: str | None
 
     # --- 路由结果 ---
     skill_type: SkillType

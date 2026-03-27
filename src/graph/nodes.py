@@ -74,8 +74,9 @@ def skill_router(state: AgentState) -> dict:
         return {"skill_type": requested, "metadata": metadata}
 
     query = state.get("user_query", "")
+    model_id = state.get("model_id")
 
-    skill, reason = _llm_route(query)
+    skill, reason = _llm_route(query, model_id=model_id)
     if skill:
         logger.info("LLM 路由: %s (原因: %s)", skill, reason)
         metadata["router_method"] = "llm"
@@ -89,13 +90,13 @@ def skill_router(state: AgentState) -> dict:
     return {"skill_type": skill, "metadata": metadata}
 
 
-def _llm_route(query: str) -> tuple[str | None, str]:
+def _llm_route(query: str, *, model_id: str | None = None) -> tuple[str | None, str]:
     """使用 LLM 做意图识别。失败时返回 (None, error_msg)。"""
     from src.config import get_llm
     from src.prompts.router import SYSTEM_PROMPT, USER_TEMPLATE, RouterOutput
 
     try:
-        llm = get_llm()
+        llm = get_llm(model_id=model_id)
         structured_llm = llm.with_structured_output(RouterOutput)
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -261,12 +262,13 @@ def skill_executor(state: AgentState) -> dict:
     repo_path = state.get("repo_path", "")
     query = state.get("user_query", "")
     context = state.get("retrieved_context", [])
+    model_id = state.get("model_id")
     metadata = dict(state.get("metadata", {}))
 
     logger.info("执行 Skill: %s", skill_type)
 
     if skill_type == "generate_skill":
-        return _execute_generate_skill(query, repo_path, context, metadata)
+        return _execute_generate_skill(query, repo_path, context, metadata, model_id=model_id)
 
     skill_map = {
         "repo_background": RepoBackgroundSkill,
@@ -283,9 +285,8 @@ def skill_executor(state: AgentState) -> dict:
         }
 
     try:
-        settings = get_settings()
-        llm = get_llm(settings)
-        metadata["model"] = settings.llm.model_name
+        llm = get_llm(model_id=model_id)
+        metadata["model"] = model_id or get_settings().llm.model_name
 
         t0 = time.time()
         skill = skill_cls(llm=llm, repo_path=repo_path)
@@ -305,16 +306,16 @@ def skill_executor(state: AgentState) -> dict:
 
 
 def _execute_generate_skill(
-    query: str, repo_path: str, context: list[str], metadata: dict
+    query: str, repo_path: str, context: list[str], metadata: dict,
+    *, model_id: str | None = None,
 ) -> dict:
     """运行上游分析 Skill (repo_background + plan_suggestion) 并汇总结果。"""
     from src.config import get_llm, get_settings
     from src.skills.skill_generator import SkillGeneratorSkill
 
     try:
-        settings = get_settings()
-        llm = get_llm(settings)
-        metadata["model"] = settings.llm.model_name
+        llm = get_llm(model_id=model_id)
+        metadata["model"] = model_id or get_settings().llm.model_name
 
         t0 = time.time()
         generator = SkillGeneratorSkill(llm=llm, repo_path=repo_path)
@@ -466,20 +467,20 @@ def _format_dict_fallback(result: dict) -> list[str]:
 
 def skill_spec_generator(state: AgentState) -> dict:
     """基于上游分析结果生成结构化 Skill 规格。"""
-    from src.config import get_llm, get_settings
+    from src.config import get_llm
     from src.skills.skill_generator import SkillGeneratorSkill
 
     query = state.get("user_query", "")
     repo_path = state.get("repo_path", "")
     analysis_results = state.get("analysis_results", {})
     context = state.get("retrieved_context", [])
+    model_id = state.get("model_id")
     metadata = dict(state.get("metadata", {}))
 
     logger.info("生成 Skill Spec...")
 
     try:
-        settings = get_settings()
-        llm = get_llm(settings)
+        llm = get_llm(model_id=model_id)
         t0 = time.time()
 
         generator = SkillGeneratorSkill(llm=llm, repo_path=repo_path)
@@ -500,11 +501,12 @@ def skill_spec_generator(state: AgentState) -> dict:
 
 def skill_md_formatter(state: AgentState) -> dict:
     """将结构化 Skill 规格渲染为 SKILL.md 内容并写入 formatted_output。"""
-    from src.config import get_llm, get_settings
+    from src.config import get_llm
     from src.skills.skill_generator import SkillGeneratorSkill
 
     spec = state.get("skill_spec", {})
     repo_path = state.get("repo_path", "")
+    model_id = state.get("model_id")
     metadata = dict(state.get("metadata", {}))
     error = state.get("error")
 
@@ -515,8 +517,7 @@ def skill_md_formatter(state: AgentState) -> dict:
     logger.info("渲染 SKILL.md...")
 
     try:
-        settings = get_settings()
-        llm = get_llm(settings)
+        llm = get_llm(model_id=model_id)
         t0 = time.time()
 
         generator = SkillGeneratorSkill(llm=llm, repo_path=repo_path)
