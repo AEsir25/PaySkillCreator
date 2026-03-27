@@ -146,8 +146,11 @@ class Settings:
     )
 
     def validate(self) -> None:
-        if not self.llm.api_key:
-            raise ValueError("OPENAI_API_KEY is required. Set it in .env or environment.")
+        if not self.llm.api_key and not get_available_models():
+            raise ValueError(
+                "未找到任何 LLM API Key。请在 .env 中至少配置一个 Provider 的 Key，"
+                "如 DASHSCOPE_API_KEY、MINIMAX_API_KEY 或 OPENAI_NATIVE_API_KEY。"
+            )
         if not self.target_repo_path:
             raise ValueError("TARGET_REPO_PATH is required. Set it in .env or environment.")
         repo = Path(self.target_repo_path)
