@@ -2,10 +2,11 @@
 
 测试覆盖:
 - SkillSpecOutput Schema 结构合法性
-- SKILL.md 输出核心章节完整性
+- SKILL.md 输出 Codex 兼容性（YAML frontmatter + 章节）
 - Graph 生成分支构建与路由
 - 关键词路由对 generate_skill 的识别
-- fallback 渲染逻辑
+- fallback 渲染逻辑（含 frontmatter）
+- _ensure_frontmatter 逻辑
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from pydantic import ValidationError
 from src.graph.builder import build_graph
 from src.graph.nodes import _keyword_route, _render_spec_fallback
 from src.schemas.output import SkillSpecOutput
+from src.skills.skill_generator import SkillGeneratorSkill
 from src.state import VALID_SKILLS
 
 
@@ -28,16 +30,20 @@ class TestSkillSpecSchema:
     def test_minimal_valid_spec(self) -> None:
         spec = SkillSpecOutput(
             name="test-skill",
-            description="A test skill for unit testing.",
-            final_markdown="# test-skill\n\nA test skill.",
+            description="A test skill for unit testing. Use when testing.",
+            final_markdown="---\nname: test-skill\ndescription: A test skill.\n---\n\n# test-skill",
         )
         assert spec.name == "test-skill"
-        assert spec.final_markdown.startswith("# test-skill")
+        assert spec.final_markdown.startswith("---")
 
     def test_full_valid_spec(self) -> None:
         spec = SkillSpecOutput(
             name="jdpaysdk-callchain-skill",
-            description="追踪 jdpaysdk 仓库中的代码调用链路。",
+            description=(
+                "Use this skill when the user provides a class or method name "
+                "related to jdpaysdk and wants the call chain. Do not use for "
+                "generic Java tutoring."
+            ),
             use_when=["用户提供了类名或方法名", "需要分析调用链路"],
             do_not_use_when=["非 jdpaysdk 仓库", "通用 Java 教学"],
             required_inputs=["类名或方法名"],
@@ -51,7 +57,11 @@ class TestSkillSpecSchema:
             validation_checks=["调用链包含至少 2 层"],
             example_requests=["分析 PayService.doPay 的调用链"],
             assumptions=["仓库使用 Java + Maven"],
-            final_markdown="# jdpaysdk-callchain-skill\n\nFull content here.",
+            final_markdown=(
+                "---\nname: jdpaysdk-callchain-skill\n"
+                'description: "Use this skill when..."\n---\n\n'
+                "# jdpaysdk-callchain-skill\n\nFull content here."
+            ),
         )
         assert len(spec.use_when) == 2
         assert len(spec.workflow_steps) == 3
@@ -66,8 +76,8 @@ class TestSkillSpecSchema:
     def test_empty_lists_are_valid(self) -> None:
         spec = SkillSpecOutput(
             name="empty-skill",
-            description="Skill with empty lists.",
-            final_markdown="# empty-skill",
+            description="Skill with empty lists. Use when testing empty cases.",
+            final_markdown="---\nname: empty-skill\ndescription: test\n---\n\n# empty-skill",
         )
         assert spec.use_when == []
         assert spec.workflow_steps == []
@@ -75,83 +85,108 @@ class TestSkillSpecSchema:
 
 
 # ---------------------------------------------------------------------------
-# SKILL.md 输出格式测试
+# Codex 兼容性测试
 # ---------------------------------------------------------------------------
 
-REQUIRED_SECTIONS = [
-    "When To Use",
-    "Do Not Use",
-    "Workflow",
-    "Validation",
-    "Example Requests",
-]
-
-REQUIRED_SECTIONS_ALT = [
-    "何时使用",
-    "不适用",
-    "工作步骤",
-    "验证",
-    "示例",
-]
-
-
-class TestSkillMdFormat:
+class TestCodexCompatibility:
+    """验证生成的 SKILL.md 符合 Codex 规范。"""
 
     @pytest.fixture
-    def sample_spec_dict(self) -> dict:
-        return SkillSpecOutput(
-            name="test-repo-skill",
-            description="用于测试的 Skill。",
-            use_when=["用户想要测试"],
-            do_not_use_when=["非测试场景"],
-            required_inputs=["测试输入"],
-            workflow_steps=["步骤一", "步骤二", "步骤三"],
-            key_paths=["src/test/"],
-            commands=["pytest"],
-            validation_checks=["输出不为空"],
-            example_requests=["请帮我测试"],
-            assumptions=["已安装 pytest"],
-            final_markdown="# test-repo-skill\n\nSkill description.\n\n"
-            "## When To Use\n\n- 用户想要测试\n\n"
-            "## Do Not Use When\n\n- 非测试场景\n\n"
-            "## Required Inputs\n\n- 测试输入\n\n"
-            "## Workflow\n\n1. 步骤一\n2. 步骤二\n3. 步骤三\n\n"
-            "## Key Paths\n\n- `src/test/`\n\n"
-            "## Commands\n\n```bash\npytest\n```\n\n"
-            "## Validation\n\n- 输出不为空\n\n"
-            "## Example Requests\n\n- 请帮我测试\n\n"
-            "## Assumptions\n\n- 已安装 pytest\n",
-        ).model_dump()
+    def sample_frontmatter_md(self) -> str:
+        return (
+            '---\nname: test-repo-skill\n'
+            'description: "Analyze test repo structure. Use when testing."\n'
+            '---\n\n'
+            '# test-repo-skill\n\n'
+            'Analyze the test repo.\n\n'
+            '## When to use\n\n'
+            '1. User wants to test\n\n'
+            '## When NOT to use\n\n'
+            '1. Non-test scenarios\n\n'
+            '## Required workflow\n\n'
+            '### Step 1: Initialize\n\nRun setup.\n\n'
+            '### Step 2: Execute\n\nRun tests.\n\n'
+            '### Step 3: Validate\n\nCheck results.\n\n'
+            '## Key paths\n\n'
+            '- `src/test/`\n\n'
+            '## Commands\n\n'
+            '```bash\npytest\n```\n\n'
+            '## Validation\n\n'
+            '- Output is not empty\n\n'
+            '## Example prompts this skill should handle well\n\n'
+            '- "Please help me test"\n\n'
+            '## Assumptions\n\n'
+            '- pytest is installed\n'
+        )
 
-    def test_final_markdown_has_title(self, sample_spec_dict: dict) -> None:
-        md = sample_spec_dict["final_markdown"]
-        assert md.startswith("# ")
+    def test_starts_with_yaml_frontmatter(self, sample_frontmatter_md: str) -> None:
+        assert sample_frontmatter_md.startswith("---\n")
 
-    def test_final_markdown_has_required_sections(self, sample_spec_dict: dict) -> None:
-        md = sample_spec_dict["final_markdown"]
-        for section in REQUIRED_SECTIONS:
-            assert section in md, f"SKILL.md 缺少章节: {section}"
+    def test_frontmatter_has_name(self, sample_frontmatter_md: str) -> None:
+        assert "name:" in sample_frontmatter_md.split("---")[1]
 
-    def test_final_markdown_not_empty(self, sample_spec_dict: dict) -> None:
-        md = sample_spec_dict["final_markdown"]
-        assert len(md) > 100
+    def test_frontmatter_has_description(self, sample_frontmatter_md: str) -> None:
+        assert "description:" in sample_frontmatter_md.split("---")[1]
 
-    def test_final_markdown_is_valid_markdown(self, sample_spec_dict: dict) -> None:
-        md = sample_spec_dict["final_markdown"]
-        assert md.count("#") >= 2
-        assert "\n" in md
+    def test_frontmatter_closes(self, sample_frontmatter_md: str) -> None:
+        parts = sample_frontmatter_md.split("---")
+        assert len(parts) >= 3, "YAML frontmatter 未正确闭合（需要两个 ---）"
+
+    def test_has_when_to_use_section(self, sample_frontmatter_md: str) -> None:
+        assert "## When to use" in sample_frontmatter_md
+
+    def test_has_when_not_to_use_section(self, sample_frontmatter_md: str) -> None:
+        assert "## When NOT to use" in sample_frontmatter_md
+
+    def test_has_workflow_section(self, sample_frontmatter_md: str) -> None:
+        assert "## Required workflow" in sample_frontmatter_md or "## Workflow" in sample_frontmatter_md
+
+    def test_has_validation_section(self, sample_frontmatter_md: str) -> None:
+        assert "## Validation" in sample_frontmatter_md
+
+    def test_has_example_section(self, sample_frontmatter_md: str) -> None:
+        assert "Example" in sample_frontmatter_md
 
 
 # ---------------------------------------------------------------------------
-# Fallback 渲染测试
+# _ensure_frontmatter 测试
+# ---------------------------------------------------------------------------
+
+class TestEnsureFrontmatter:
+
+    def test_preserves_existing_frontmatter(self) -> None:
+        md = "---\nname: x\ndescription: y\n---\n\n# x\n\nBody."
+        result = SkillGeneratorSkill._ensure_frontmatter(md, {"name": "x", "description": "y"})
+        assert result.startswith("---")
+        assert result.count("---") == 2
+
+    def test_adds_missing_frontmatter(self) -> None:
+        md = "# my-skill\n\nSome body content."
+        spec = {"name": "my-skill", "description": "Does things. Use when needed."}
+        result = SkillGeneratorSkill._ensure_frontmatter(md, spec)
+        assert result.startswith("---\n")
+        assert "name: my-skill" in result
+        assert 'description: "Does things.' in result
+        assert "# my-skill" in result
+
+    def test_handles_quotes_in_description(self) -> None:
+        md = "# test\n\nBody."
+        spec = {"name": "test", "description": 'Has "quotes" inside.'}
+        result = SkillGeneratorSkill._ensure_frontmatter(md, spec)
+        assert result.startswith("---")
+        assert '\\"quotes\\"' in result or "quotes" in result
+
+
+# ---------------------------------------------------------------------------
+# Fallback 渲染测试（含 Codex frontmatter）
 # ---------------------------------------------------------------------------
 
 class TestFallbackRenderer:
 
-    def test_render_spec_fallback_basic(self) -> None:
+    def test_render_spec_fallback_has_frontmatter(self) -> None:
         spec = {
             "name": "fallback-skill",
-            "description": "Fallback test.",
+            "description": "Fallback test. Use when LLM fails.",
             "use_when": ["条件 A", "条件 B"],
             "workflow_steps": ["步骤 1", "步骤 2"],
             "key_paths": ["src/"],
@@ -159,18 +194,40 @@ class TestFallbackRenderer:
             "example_requests": ["示例 1"],
         }
         md = _render_spec_fallback(spec)
-        assert md.startswith("# fallback-skill")
-        assert "## When To Use" in md
-        assert "## Workflow" in md
+        assert md.startswith("---\n")
+        assert "name: fallback-skill" in md
+        assert "description:" in md
+
+    def test_render_spec_fallback_has_codex_sections(self) -> None:
+        spec = {
+            "name": "fallback-skill",
+            "description": "Test.",
+            "use_when": ["条件 A"],
+            "do_not_use_when": ["排除 A"],
+            "workflow_steps": ["步骤 1"],
+            "validation_checks": ["检查 1"],
+            "example_requests": ["示例 1"],
+        }
+        md = _render_spec_fallback(spec)
+        assert "## When to use" in md
+        assert "## When NOT to use" in md
+        assert "## Required workflow" in md
         assert "## Validation" in md
-        assert "- 条件 A" in md
-        assert "- 步骤 1" in md
+        assert "## Example prompts" in md
+
+    def test_render_spec_fallback_body_after_frontmatter(self) -> None:
+        spec = {"name": "test", "description": "Desc."}
+        md = _render_spec_fallback(spec)
+        parts = md.split("---")
+        assert len(parts) >= 3
+        body = parts[2]
+        assert "# test" in body
 
     def test_render_spec_fallback_empty_lists(self) -> None:
         spec = {"name": "empty", "description": "Empty."}
         md = _render_spec_fallback(spec)
-        assert md.startswith("# empty")
-        assert "##" not in md.split("\n", 2)[-1] or True  # no sections with content
+        assert md.startswith("---\n")
+        assert "name: empty" in md
 
 
 # ---------------------------------------------------------------------------

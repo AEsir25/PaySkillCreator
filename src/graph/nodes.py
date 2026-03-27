@@ -540,21 +540,31 @@ def skill_md_formatter(state: AgentState) -> dict:
 
 
 def _render_spec_fallback(spec: dict) -> str:
-    """当 LLM 渲染失败时，基于结构化数据直接生成 Markdown。"""
+    """当 LLM 渲染失败时，基于结构化数据直接生成 Codex 兼容的 SKILL.md。"""
     name = spec.get("name", "unnamed-skill")
-    lines = [f"# {name}", ""]
-    lines.append(spec.get("description", ""))
+    desc = spec.get("description", "").replace('"', '\\"')
+
+    lines: list[str] = []
+    lines.append("---")
+    lines.append(f"name: {name}")
+    lines.append(f'description: "{desc}"')
+    lines.append("---")
     lines.append("")
+    lines.append(f"# {name}")
+    lines.append("")
+    if desc:
+        lines.append(desc.split('"')[0] if '"' in desc else desc)
+        lines.append("")
 
     section_map = [
-        ("When To Use", "use_when"),
-        ("Do Not Use When", "do_not_use_when"),
-        ("Required Inputs", "required_inputs"),
-        ("Workflow", "workflow_steps"),
-        ("Key Paths", "key_paths"),
+        ("When to use", "use_when"),
+        ("When NOT to use", "do_not_use_when"),
+        ("Required inputs", "required_inputs"),
+        ("Required workflow", "workflow_steps"),
+        ("Key paths", "key_paths"),
         ("Commands", "commands"),
         ("Validation", "validation_checks"),
-        ("Example Requests", "example_requests"),
+        ("Example prompts this skill should handle well", "example_requests"),
         ("Assumptions", "assumptions"),
     ]
     for title, key in section_map:

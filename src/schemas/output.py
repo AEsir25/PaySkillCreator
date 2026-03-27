@@ -62,15 +62,23 @@ class PlanSuggestionOutput(BaseModel):
 # ---------------------------------------------------------------------------
 
 class SkillSpecOutput(BaseModel):
-    """SKILL.md 生成的结构化 Skill 规格"""
+    """SKILL.md 生成的结构化 Skill 规格（Codex/Cursor 兼容格式）"""
 
     name: str = Field(
         ...,
-        description="Skill 名称，简短、可作为目录前缀，例如 jdpaysdk-callchain-skill",
+        description=(
+            "Skill 名称，小写字母+连字符，最多 64 字符，可作为目录名，"
+            "例如 jdpaysdk-callchain-skill"
+        ),
     )
     description: str = Field(
         ...,
-        description="一句话说清这个 Skill 做什么、面向什么仓库",
+        description=(
+            "YAML frontmatter 的 description 字段，"
+            "必须同时包含: (1) Skill 做什么; (2) 什么时候应该触发。"
+            "这是 Codex/Cursor 发现和激活 Skill 的唯一依据，务必全面具体。"
+            "长度建议 50-200 词。"
+        ),
     )
     use_when: list[str] = Field(
         default_factory=list,
@@ -86,7 +94,7 @@ class SkillSpecOutput(BaseModel):
     )
     workflow_steps: list[str] = Field(
         default_factory=list,
-        description="执行此 Skill 时的具体工作步骤（按顺序）",
+        description="Agent 执行此 Skill 时的具体工作步骤（按顺序，祈使句）",
     )
     key_paths: list[str] = Field(
         default_factory=list,
@@ -110,5 +118,9 @@ class SkillSpecOutput(BaseModel):
     )
     final_markdown: str = Field(
         ...,
-        description="最终可直接写入 SKILL.md 的完整 Markdown 内容",
+        description=(
+            "最终可直接写入 SKILL.md 的完整内容，"
+            "必须以 YAML frontmatter 开头（---\\nname: ...\\ndescription: ...\\n---），"
+            "后接 Markdown body"
+        ),
     )

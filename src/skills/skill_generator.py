@@ -78,14 +78,14 @@ class SkillGeneratorSkill(BaseSkill):
         return result.model_dump()
 
     def render_markdown(self, spec: dict) -> str:
-        """将结构化规格渲染为 SKILL.md 内容。
+        """将结构化规格渲染为 SKILL.md 内容（Codex 兼容格式）。
 
-        如果 spec 中已经有 final_markdown（来自 spec 生成阶段的 LLM 输出），
-        直接使用。否则通过 LLM 重新渲染。
+        优先使用 spec 中的 final_markdown（如果它已包含 YAML frontmatter）。
+        否则通过 LLM 渲染，并确保输出包含 frontmatter。
         """
         existing_md = spec.get("final_markdown", "")
         if existing_md and len(existing_md) > 200:
-            return existing_md
+            return self._ensure_frontmatter(existing_md, spec)
 
         user_message = MD_USER_TEMPLATE.format(
             name=spec.get("name", "unnamed-skill"),
@@ -106,7 +106,19 @@ class SkillGeneratorSkill(BaseSkill):
             {"role": "user", "content": user_message},
         ]
         response = self.llm.invoke(messages)
-        return response.content
+        return self._ensure_frontmatter(response.content, spec)
+
+    @staticmethod
+    def _ensure_frontmatter(markdown: str, spec: dict) -> str:
+        """确保 Markdown 以 YAML frontmatter 开头（Codex 要求）。"""
+        stripped = markdown.strip()
+        if stripped.startswith("---"):
+            return stripped
+
+        name = spec.get("name", "unnamed-skill")
+        desc = spec.get("description", "").replace('"', '\\"')
+        frontmatter = f'---\nname: {name}\ndescription: "{desc}"\n---\n\n'
+        return frontmatter + stripped
 
     @staticmethod
     def _format_analysis(title: str, data: dict) -> str:
