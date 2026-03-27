@@ -183,13 +183,13 @@ function handleSSEEvent(event, data, steps, progressEl, contentEl, metaEl) {
     Object.values(steps).forEach((s) => (s.done = true));
     renderProgress(progressEl, steps, null);
 
-    const md = data.formatted_output || "*无结果*";
+    const rawOutput = data.formatted_output || "";
     const skillType = data.skill_type || currentSkillType;
 
-    setContent(contentEl, md);
-
-    if (skillType === "generate_skill" && data.formatted_output) {
-      appendDownloadButton(contentEl, data.formatted_output);
+    if (skillType === "generate_skill" && rawOutput) {
+      renderSkillMd(contentEl, rawOutput);
+    } else {
+      setContent(contentEl, rawOutput || "*无结果*");
     }
 
     const meta = data.metadata || {};
@@ -262,6 +262,54 @@ function renderProgress(el, steps, activeStage) {
 
 function setContent(el, markdown) {
   el.innerHTML = marked.parse(markdown);
+}
+
+function parseFrontmatter(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("---")) return { frontmatter: null, body: raw };
+
+  const end = trimmed.indexOf("---", 3);
+  if (end === -1) return { frontmatter: null, body: raw };
+
+  const fmBlock = trimmed.slice(3, end).trim();
+  const body = trimmed.slice(end + 3).trim();
+
+  const fm = {};
+  for (const line of fmBlock.split("\n")) {
+    const idx = line.indexOf(":");
+    if (idx > 0) {
+      const key = line.slice(0, idx).trim();
+      let val = line.slice(idx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      fm[key] = val;
+    }
+  }
+  return { frontmatter: fm, body };
+}
+
+function renderSkillMd(contentEl, rawOutput) {
+  const { frontmatter, body } = parseFrontmatter(rawOutput);
+
+  let html = "";
+
+  if (frontmatter) {
+    html += '<div class="frontmatter-card">';
+    html += '<div class="frontmatter-badge">SKILL.md · Codex Compatible</div>';
+    if (frontmatter.name) {
+      html += `<div class="frontmatter-name">${escapeHtml(frontmatter.name)}</div>`;
+    }
+    if (frontmatter.description) {
+      html += `<div class="frontmatter-desc">${escapeHtml(frontmatter.description)}</div>`;
+    }
+    html += "</div>";
+  }
+
+  html += marked.parse(body);
+
+  contentEl.innerHTML = html;
+  appendDownloadButton(contentEl, rawOutput);
 }
 
 function renderMetadata(el, skillType, meta) {

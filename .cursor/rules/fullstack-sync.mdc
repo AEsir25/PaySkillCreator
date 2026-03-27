@@ -1,0 +1,37 @@
+---
+description: 前后端同步更新规则 — 每次功能迭代必须同步更新 Web UI
+globs:
+  - "src/**"
+  - "web/**"
+alwaysApply: true
+---
+
+# 前后端同步更新规则
+
+## 核心原则
+
+**每次对 `src/` 下的功能代码进行迭代时，必须检查并同步更新 `web/` 前后端代码。**
+
+## 检查清单
+
+当修改以下模块时，务必对照更新前后端：
+
+| 改动范围 | 需要检查的前后端文件 |
+|---|---|
+| `src/state.py` — 新增/修改 SkillType、AgentState 字段 | `web/server.py` — `_NODE_LABELS`、SSE payload 字段 |
+| `src/graph/builder.py` — 新增节点/边 | `web/server.py` — `_NODE_LABELS` 映射 |
+| `src/graph/nodes.py` — 新增/修改节点行为 | `web/server.py` — SSE 事件 payload |
+| `src/schemas/output.py` — 新增/修改输出 Schema | `web/static/app.js` — 结果渲染逻辑 |
+| `src/skills/` — 新增 Skill 类型 | `web/static/index.html` — radio 选项、快捷按钮 |
+| | `web/static/app.js` — 进度步骤、结果展示 |
+| | `web/static/style.css` — 新元素样式 |
+| `src/main.py` — 新增 CLI 命令/参数 | `README.md` — 使用说明 |
+
+## 具体要求
+
+1. **进度步骤同步**：`web/static/app.js` 中的 `ANALYSIS_STEPS` / `GENERATE_SKILL_STEPS` 必须与 `web/server.py` 的 `_NODE_LABELS` 以及 `src/graph/builder.py` 的节点一一对应。
+2. **SSE 事件同步**：后端新增的 SSE 事件字段，前端必须解析和展示。
+3. **技能选项同步**：新增 Skill 类型时，`index.html` 的 radio 选项和 `app.js` 的 `buildSteps()` 必须同步更新。
+4. **输出渲染同步**：输出 Schema 变更时，前端的结果渲染逻辑（如 `renderSkillMd`、`setContent`）必须适配。
+5. **样式同步**：新增前端元素时，`style.css` 必须提供对应样式。
+6. **README 同步**：功能变更后，`README.md` 的使用说明和示例命令必须更新。
