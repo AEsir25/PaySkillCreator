@@ -175,17 +175,11 @@ def get_llm(settings: Settings | None = None, model_id: str | None = None):
                   传入时按 Provider 注册表查找凭据。
     """
     from langchain_openai import ChatOpenAI
-    import json as _json, time as _time  # noqa: E401
-
-    _log_path = "/Users/zhengyehui.1/PaySkillCreator/.cursor/debug-1cdcab.log"
 
     if model_id and model_id in _MODEL_MAP:
         model_def, provider_def = _MODEL_MAP[model_id]
         api_key = _resolve_provider_key(provider_def)
         base_url = _resolve_provider_base_url(provider_def)
-        # #region agent log
-        with open(_log_path, "a") as _f: _f.write(_json.dumps({"sessionId":"1cdcab","location":"config.py:get_llm","message":"provider branch","data":{"model_id":model_id,"provider":provider_def.id,"base_url":base_url,"model_name":model_def.model_name,"has_key":bool(api_key)},"hypothesisId":"A,C","timestamp":int(_time.time()*1000)}) + "\n")
-        # #endregion
         return ChatOpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -195,9 +189,6 @@ def get_llm(settings: Settings | None = None, model_id: str | None = None):
         )
 
     s = settings or get_settings()
-    # #region agent log
-    with open(_log_path, "a") as _f: _f.write(_json.dumps({"sessionId":"1cdcab","location":"config.py:get_llm","message":"fallback branch","data":{"model_id":model_id,"base_url":s.llm.base_url,"model_name":s.llm.model_name,"has_key":bool(s.llm.api_key)},"hypothesisId":"B","timestamp":int(_time.time()*1000)}) + "\n")
-    # #endregion
     return ChatOpenAI(
         api_key=s.llm.api_key,
         base_url=s.llm.base_url,

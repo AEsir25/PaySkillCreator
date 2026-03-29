@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
@@ -53,23 +54,12 @@ class BaseSkill(ABC):
         ]
         logger.info("[%s] 调用 LLM (structured output: %s)", self.name, output_schema.__name__)
 
-        # #region agent log
-        import time as _time
-        _log_path = "/Users/zhengyehui.1/PaySkillCreator/.cursor/debug-1cdcab.log"
-        # #endregion
-
         try:
             structured_llm = self.llm.with_structured_output(output_schema)
             result = structured_llm.invoke(messages)
-            # #region agent log
-            with open(_log_path, "a") as _f: _f.write(json.dumps({"sessionId":"1cdcab","location":"base.py:_call_llm_structured","message":"structured ok","data":{"schema":output_schema.__name__,"result_type":type(result).__name__},"hypothesisId":"verify","timestamp":int(_time.time()*1000)}) + "\n")
-            # #endregion
             return result
         except Exception as e:
             logger.warning("[%s] structured output 失败，尝试 fallback: %s", self.name, e)
-            # #region agent log
-            with open(_log_path, "a") as _f: _f.write(json.dumps({"sessionId":"1cdcab","location":"base.py:_call_llm_structured","message":"structured failed, trying fallback","data":{"schema":output_schema.__name__,"error":str(e)[:200]},"hypothesisId":"verify","timestamp":int(_time.time()*1000)}) + "\n")
-            # #endregion
 
         schema_json = json.dumps(
             output_schema.model_json_schema(), ensure_ascii=False, indent=None,
@@ -88,10 +78,6 @@ class BaseSkill(ABC):
         raw_result = self.llm.invoke(json_messages)
         text = raw_result.content.strip()
 
-        # #region agent log
-        with open(_log_path, "a") as _f: _f.write(json.dumps({"sessionId":"1cdcab","location":"base.py:_call_llm_structured","message":"fallback raw response","data":{"schema":output_schema.__name__,"content_len":len(text),"content_head":text[:300]},"hypothesisId":"verify","timestamp":int(_time.time()*1000)}) + "\n")
-        # #endregion
-
         start = text.find("{")
         end = text.rfind("}") + 1
         if start < 0 or end <= start:
@@ -103,8 +89,48 @@ class BaseSkill(ABC):
         if output_schema.__name__ in data and isinstance(data[output_schema.__name__], dict):
             data = data[output_schema.__name__]
 
-        # #region agent log
-        with open(_log_path, "a") as _f: _f.write(json.dumps({"sessionId":"1cdcab","location":"base.py:_call_llm_structured","message":"fallback parsed","data":{"schema":output_schema.__name__,"keys":list(data.keys())[:10]},"hypothesisId":"verify","timestamp":int(_time.time()*1000)}) + "\n")
-        # #endregion
+        normalized_data = _normalize_data_for_schema(data, output_schema)
 
-        return output_schema.model_validate(data)
+        try:
+            validated = output_schema.model_validate(normalized_data)
+            return validated
+        except Exception:
+            raise
+
+
+def _coerce_value_by_type(value: object, annotation: object) -> object:
+    """按字段类型做轻量归一化。"""
+    ann = str(annotation)
+
+    if "list[str]" in ann or "typing.List[str]" in ann:
+        if isinstance(value, list):
+            return [str(v).strip() for v in value if str(v).strip()]
+        if isinstance(value, str):
+            s = value.strip()
+            if not s:
+                return []
+            parts = re.split(r"\n+|[；;。]+", s)
+            cleaned = [p.strip(" -•\t") for p in parts if p.strip(" -•\t")]
+            return cleaned if cleaned else [s]
+        return [str(value).strip()] if value is not None else []
+
+    if ann == "str" or ann.endswith(".str"):
+        if isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            return "\n".join(str(v) for v in value if str(v).strip())
+        return "" if value is None else str(value)
+
+    return value
+
+
+def _normalize_data_for_schema(data: dict, output_schema: type[BaseModel]) -> dict:
+    """根据 schema 归一化 data。"""
+    normalized = dict(data)
+    for field_name, field_info in output_schema.model_fields.items():
+        if field_name not in normalized:
+            continue
+        normalized[field_name] = _coerce_value_by_type(
+            normalized[field_name], field_info.annotation
+        )
+    return normalized
