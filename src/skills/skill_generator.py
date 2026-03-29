@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING
 
 from src.prompts.skill_generator import (
@@ -26,16 +27,21 @@ class SkillGeneratorSkill(BaseSkill):
     name = "skill_generator"
 
     def execute(self, query: str, context: list[str]) -> dict:
-        """运行 repo_background + plan_suggestion，汇总后生成 SkillSpec。"""
+        """运行 repo_background + plan_suggestion + chain_analysis，汇总后生成 SkillSpec。"""
+        from src.skills.chain_analysis import ChainAnalysisSkill
         from src.skills.plan_suggestion import PlanSuggestionSkill
         from src.skills.repo_background import RepoBackgroundSkill
 
         repo_bg = self._run_sub_skill(RepoBackgroundSkill, query, context)
         plan = self._run_sub_skill(PlanSuggestionSkill, query, context)
+        chain_query = self._build_chain_query(query, context)
+        chain = self._run_sub_skill(ChainAnalysisSkill, chain_query, context)
 
         return {
             "repo_background": repo_bg,
             "plan_suggestion": plan,
+            "chain_analysis": chain,
+            "chain_query": chain_query,
         }
 
     def _run_sub_skill(
@@ -56,9 +62,11 @@ class SkillGeneratorSkill(BaseSkill):
         """基于分析结果生成结构化 Skill 规格。"""
         repo_bg = analysis_results.get("repo_background", {})
         plan = analysis_results.get("plan_suggestion", {})
+        chain = analysis_results.get("chain_analysis", {})
 
         repo_bg_text = self._format_analysis("仓库背景", repo_bg)
         plan_text = self._format_analysis("需求方案", plan)
+        chain_text = self._format_analysis("代码链路", chain)
         context_text = "\n\n".join(context) if context else "(无额外上下文)"
 
         user_message = SPEC_USER_TEMPLATE.format(
@@ -66,6 +74,7 @@ class SkillGeneratorSkill(BaseSkill):
             repo_path=self.repo_path,
             repo_background=repo_bg_text,
             plan_analysis=plan_text,
+            chain_analysis=chain_text,
             retrieved_context=context_text,
         )
 
@@ -93,10 +102,16 @@ class SkillGeneratorSkill(BaseSkill):
             use_when=self._list_to_bullets(spec.get("use_when", [])),
             do_not_use_when=self._list_to_bullets(spec.get("do_not_use_when", [])),
             required_inputs=self._list_to_bullets(spec.get("required_inputs", [])),
+            background_knowledge=self._list_to_bullets(spec.get("background_knowledge", [])),
+            business_glossary=self._list_to_bullets(spec.get("business_glossary", [])),
+            scene_entry_points=self._list_to_bullets(spec.get("scene_entry_points", [])),
+            typical_call_chains=self._list_to_bullets(spec.get("typical_call_chains", [])),
             workflow_steps=self._list_to_numbered(spec.get("workflow_steps", [])),
             key_paths=self._list_to_bullets(spec.get("key_paths", [])),
             commands=self._list_to_bullets(spec.get("commands", [])),
             validation_checks=self._list_to_bullets(spec.get("validation_checks", [])),
+            debug_checklist=self._list_to_bullets(spec.get("debug_checklist", [])),
+            search_keywords=self._list_to_bullets(spec.get("search_keywords", [])),
             example_requests=self._list_to_bullets(spec.get("example_requests", [])),
             assumptions=self._list_to_bullets(spec.get("assumptions", [])),
         )
@@ -134,6 +149,62 @@ class SkillGeneratorSkill(BaseSkill):
             else:
                 lines.append(f"- **{key}**: {value}")
         return "\n".join(lines) if lines else f"({title}无数据)"
+
+    @staticmethod
+    def _build_chain_query(query: str, context: list[str]) -> str:
+        terms = SkillGeneratorSkill._extract_scene_terms(query, context)
+        if not terms:
+            return (
+                "请分析与以下需求最相关的业务调用链，并优先定位候选入口、配置开关和关键分支："
+                f"{query}"
+            )
+
+        joined = " / ".join(terms[:6])
+        return (
+            "请分析该业务场景在仓库中的典型调用链，优先找入口方法、活动或价格相关分支、"
+            f"配置开关与关键服务。场景词: {joined}。原始需求: {query}"
+        )
+
+    @staticmethod
+    def _extract_scene_terms(query: str, context: list[str]) -> list[str]:
+        candidates: list[str] = []
+
+        for m in re.finditer(r"[A-Z][a-z]+(?:[A-Z][a-z]+)+", query):
+            candidates.append(m.group())
+        for m in re.finditer(r"[a-zA-Z_]\w{3,}", query):
+            word = m.group()
+            lowered = word.lower()
+            if lowered not in {
+                "skill", "prompt", "scene", "generic", "create", "generated",
+                "common", "coding", "code", "context", "information",
+            }:
+                candidates.append(word)
+        if not candidates:
+            for m in re.finditer(r"[\u4e00-\u9fff]{2,6}", query):
+                candidates.append(m.group())
+
+        joined_context = "\n".join(context[:3])
+        alias_map = {
+            "一分购": ["一分购", "一分钱购", "营销活动", "活动价", "promotion", "activity"],
+            "支付": ["支付", "pay", "payment", "下单", "收银台"],
+            "退款": ["退款", "refund", "reverse", "售后"],
+        }
+        for key, aliases in alias_map.items():
+            if key in query or key in joined_context:
+                candidates.extend(aliases)
+
+        seen: set[str] = set()
+        result: list[str] = []
+        for item in candidates:
+            norm = item.strip()
+            if not norm:
+                continue
+            lowered = norm.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            result.append(norm)
+        return result
 
     @staticmethod
     def _list_to_bullets(items: list[str]) -> str:

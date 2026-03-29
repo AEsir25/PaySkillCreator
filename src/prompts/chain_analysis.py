@@ -18,12 +18,13 @@ SYSTEM_PROMPT = """\
 
 ## 分析步骤
 
-1. 首先根据用户描述，用 search_symbol 或 search_code 定位入口代码
+1. 首先根据用户描述，用 search_symbol 或 search_code 定位入口代码；如果用户只提供了业务场景词，也要先找候选入口、配置开关、活动标识、路由代码
 2. 用 extract_method_body 读取入口方法的完整代码
 3. 用 find_method_calls 分析该方法调用了哪些其他方法
 4. 对关键的下游调用，继续用 search_symbol + read_file 追踪
 5. 重复步骤 3-4，直到追踪到足够深度（通常 3-5 层）
-6. 整理调用链路，识别关键分支和依赖
+6. 记录你为什么判断某个类/方法是入口，保留入口证据
+7. 整理调用链路，识别关键分支、依赖和未确认点
 
 ## 约束
 
@@ -32,6 +33,7 @@ SYSTEM_PROMPT = """\
 - 追踪深度不超过 5 层，避免过度展开
 - 优先追踪核心业务逻辑，忽略日志、监控等横切关注点
 - 如果某个调用无法定位源码，在 risks 中标注
+- 如果入口不唯一，给出最可能的 1-3 个候选，并在 unresolved_points 中说明不确定性
 """
 
 FINAL_SUMMARY_PROMPT = """\
@@ -44,6 +46,9 @@ FINAL_SUMMARY_PROMPT = """\
 3. **key_branches**: 关键的条件分支逻辑
 4. **dependencies**: 涉及的依赖模块
 5. **risks**: 风险点和不确定点（如无法定位的调用、可能的性能问题等）
+6. **entry_evidence**: 证明 entry_point 或候选入口的证据
+7. **unresolved_points**: 尚未确认的点，例如多个入口无法判定哪个真正生效
+8. **search_strategy_used**: 你采用了哪些搜索策略或关键词
 
 ## 用户原始问题
 {query}

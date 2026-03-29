@@ -47,6 +47,10 @@ class TestSkillSpecSchema:
             use_when=["用户提供了类名或方法名", "需要分析调用链路"],
             do_not_use_when=["非 jdpaysdk 仓库", "通用 Java 教学"],
             required_inputs=["类名或方法名"],
+            background_knowledge=["先确认业务场景和入口协议，再追服务链路"],
+            business_glossary=["受理单: 支付申请单据"],
+            scene_entry_points=["PayController.submit"],
+            typical_call_chains=["PayController.submit -> PayService.doPay -> ChannelRouter.route"],
             workflow_steps=[
                 "搜索入口类定义",
                 "提取方法体",
@@ -55,6 +59,8 @@ class TestSkillSpecSchema:
             key_paths=["src/main/java/com/jd/pay/"],
             commands=["mvn compile"],
             validation_checks=["调用链包含至少 2 层"],
+            debug_checklist=["确认路由配置是否命中"],
+            search_keywords=["PayService", "ChannelRouter"],
             example_requests=["分析 PayService.doPay 的调用链"],
             assumptions=["仓库使用 Java + Maven"],
             final_markdown=(
@@ -188,6 +194,9 @@ class TestFallbackRenderer:
             "name": "fallback-skill",
             "description": "Fallback test. Use when LLM fails.",
             "use_when": ["条件 A", "条件 B"],
+            "background_knowledge": ["背景 A"],
+            "scene_entry_points": ["入口 A"],
+            "typical_call_chains": ["入口 A -> 服务 B -> 仓储 C"],
             "workflow_steps": ["步骤 1", "步骤 2"],
             "key_paths": ["src/"],
             "validation_checks": ["检查 1"],
@@ -204,6 +213,9 @@ class TestFallbackRenderer:
             "description": "Test.",
             "use_when": ["条件 A"],
             "do_not_use_when": ["排除 A"],
+            "background_knowledge": ["背景 A"],
+            "scene_entry_points": ["入口 A"],
+            "typical_call_chains": ["入口 A -> 服务 B"],
             "workflow_steps": ["步骤 1"],
             "validation_checks": ["检查 1"],
             "example_requests": ["示例 1"],
@@ -212,6 +224,9 @@ class TestFallbackRenderer:
         assert "## When to use" in md
         assert "## When NOT to use" in md
         assert "## Required workflow" in md
+        assert "## Scene background" in md
+        assert "## Entry points" in md
+        assert "## Typical call chains" in md
         assert "## Validation" in md
         assert "## Example prompts" in md
 
@@ -228,6 +243,18 @@ class TestFallbackRenderer:
         md = _render_spec_fallback(spec)
         assert md.startswith("---\n")
         assert "name: empty" in md
+
+    def test_render_spec_fallback_commands_render_as_code_block(self) -> None:
+        spec = {"name": "cmd", "description": "Desc.", "commands": ["pytest -q"]}
+        md = _render_spec_fallback(spec)
+        assert "```bash" in md
+        assert "pytest -q" in md
+
+    def test_build_chain_query_expands_scene_terms(self) -> None:
+        query = "帮我生成一个一分购场景的中文通用skill"
+        result = SkillGeneratorSkill._build_chain_query(query, [])
+        assert "一分购" in result
+        assert "调用链" in result
 
 
 # ---------------------------------------------------------------------------

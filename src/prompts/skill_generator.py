@@ -48,9 +48,10 @@ Do not use for generic Java concept tutoring or non-jdpaysdk repositories."
 2. **description 完整**: 必须包含做什么 + 何时用 + 何时不用，让 Codex 能精准触发
 3. **触发明确**: use_when 具体到"用户说了什么/给了什么输入"
 4. **边界清晰**: do_not_use_when 列出容易混淆的场景
-5. **步骤可执行**: workflow_steps 用祈使句，每步包含具体动作
-6. **路径真实**: key_paths 来自分析结果中的真实路径
-7. **示例具体**: example_requests 带具体类名/方法名/需求描述
+5. **场景知识可直接消费**: 必须输出 background_knowledge、business_glossary、scene_entry_points、typical_call_chains，让 AI coding 可以快速进入上下文
+6. **步骤可执行**: workflow_steps 用祈使句，每步包含具体动作，优先体现"先找入口，再追链，再看分支，再收敛改动点"
+7. **路径真实**: key_paths 来自分析结果中的真实路径
+8. **示例具体**: example_requests 带具体类名/方法名/需求描述
 
 ## final_markdown 字段要求
 
@@ -58,7 +59,14 @@ final_markdown 必须是一个可以直接写入 SKILL.md 的完整文件内容:
 1. 以 YAML frontmatter 开头（---\\nname: ...\\ndescription: ...\\n---）
 2. 紧接 Markdown body，写给 AI Agent 看的操作指南
 3. Body 用祈使句/指令式语气（"搜索入口类定义"而非"需要搜索入口类定义"）
-4. 500 行以内
+4. 如果是业务场景型 skill，正文必须包含以下章节:
+   - `## Scene background`
+   - `## Business glossary`
+   - `## Entry points`
+   - `## Typical call chains`
+   - `## How to read this codebase for this scene`
+   - `## Debug checklist`
+5. 500 行以内
 
 ## 约束
 
@@ -67,6 +75,8 @@ final_markdown 必须是一个可以直接写入 SKILL.md 的完整文件内容:
 - workflow_steps: 3-10 步
 - example_requests: 2-5 个
 - 不要包含通用软件工程建议
+- 明确区分"已确认事实"与"基于证据的推断"
+- 如果上游分析缺少调用链，不要编造；在 typical_call_chains 和 assumptions 中明确说明证据不足
 """
 
 SPEC_USER_TEMPLATE = """\
@@ -83,6 +93,9 @@ SPEC_USER_TEMPLATE = """\
 
 ## 需求方案分析
 {plan_analysis}
+
+## 代码链路分析
+{chain_analysis}
 
 ## 检索到的仓库上下文
 {retrieved_context}
@@ -118,11 +131,17 @@ description: 完整的触发描述，包含做什么和什么时候用...
 3. `## When to use` — 触发条件（numbered list）
 4. `## When NOT to use` — 排除条件（numbered list）
 5. `## Required workflow` — Agent 的工作步骤，每步用 `## Step N:` 子标题展开
-6. `## Key paths` — 关键文件路径（bullet list，路径用 backtick）
-7. `## Commands` — 命令用 bash 代码块
-8. `## Validation` — 验证方式
-9. `## Example prompts this skill should handle well` — 示例请求（bullet list）
-10. `## Assumptions` — 前置假设
+6. `## Scene background` — 场景背景知识压缩（bullet list）
+7. `## Business glossary` — 术语表（bullet list）
+8. `## Entry points` — 候选入口、配置开关、路由点（bullet list）
+9. `## Typical call chains` — 典型调用链摘要（bullet list）
+10. `## Key paths` — 关键文件路径（bullet list，路径用 backtick）
+11. `## Commands` — 命令用 bash 代码块
+12. `## Validation` — 验证方式
+13. `## Debug checklist` — 排查清单
+14. `## Search keywords` — 推荐搜索词
+15. `## Example prompts this skill should handle well` — 示例请求（bullet list）
+16. `## Assumptions` — 前置假设
 
 ## 渲染要求
 
@@ -154,6 +173,18 @@ MD_USER_TEMPLATE = """\
 ### 工作步骤 (workflow_steps)
 {workflow_steps}
 
+### 场景背景知识 (background_knowledge)
+{background_knowledge}
+
+### 业务术语 (business_glossary)
+{business_glossary}
+
+### 场景入口 (scene_entry_points)
+{scene_entry_points}
+
+### 典型调用链 (typical_call_chains)
+{typical_call_chains}
+
 ### 关键路径 (key_paths)
 {key_paths}
 
@@ -162,6 +193,12 @@ MD_USER_TEMPLATE = """\
 
 ### 验证方式 (validation_checks)
 {validation_checks}
+
+### 调试排查清单 (debug_checklist)
+{debug_checklist}
+
+### 推荐搜索词 (search_keywords)
+{search_keywords}
 
 ### 示例请求 (example_requests)
 {example_requests}

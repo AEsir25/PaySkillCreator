@@ -44,6 +44,9 @@ class ChainAnalysisOutput(BaseModel):
     key_branches: list[str] = Field(default_factory=list, description="关键分支逻辑")
     dependencies: list[str] = Field(default_factory=list, description="依赖模块")
     risks: list[str] = Field(default_factory=list, description="风险点与不确定点")
+    entry_evidence: list[str] = Field(default_factory=list, description="用于定位入口点的证据")
+    unresolved_points: list[str] = Field(default_factory=list, description="尚未确认的链路问题")
+    search_strategy_used: list[str] = Field(default_factory=list, description="本次追链使用的搜索策略")
 
 
 class PlanSuggestionOutput(BaseModel):
@@ -84,6 +87,22 @@ class SkillSpecOutput(BaseModel):
         default_factory=list,
         description="用户必须提供的输入，例如类名、方法名、需求描述",
     )
+    background_knowledge: list[str] = Field(
+        default_factory=list,
+        description="面向 AI coding 的场景背景知识压缩",
+    )
+    business_glossary: list[str] = Field(
+        default_factory=list,
+        description="场景相关的业务术语表",
+    )
+    scene_entry_points: list[str] = Field(
+        default_factory=list,
+        description="该业务场景在仓库中的入口点或候选入口",
+    )
+    typical_call_chains: list[str] = Field(
+        default_factory=list,
+        description="典型调用链摘要，包含入口到下游的关键路径",
+    )
     workflow_steps: list[str] = Field(
         default_factory=list,
         description="Agent 执行此 Skill 时的具体工作步骤（按顺序，祈使句）",
@@ -99,6 +118,14 @@ class SkillSpecOutput(BaseModel):
     validation_checks: list[str] = Field(
         default_factory=list,
         description="如何验证 Skill 执行结果是否正确",
+    )
+    debug_checklist: list[str] = Field(
+        default_factory=list,
+        description="调试与排查该场景时优先检查的事项",
+    )
+    search_keywords: list[str] = Field(
+        default_factory=list,
+        description="分析该场景时建议优先检索的关键词或别名",
     )
     example_requests: list[str] = Field(
         default_factory=list,

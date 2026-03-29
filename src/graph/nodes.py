@@ -139,6 +139,8 @@ def context_retriever(state: AgentState) -> dict:
     query = state.get("user_query", "")
     settings = get_settings()
     max_tokens = settings.max_context_tokens
+    if skill_type == "generate_skill":
+        max_tokens = int(max_tokens * 1.5)
 
     logger.info("检索上下文: skill=%s, repo=%s, max_tokens=%d", skill_type, repo_path, max_tokens)
 
@@ -309,7 +311,7 @@ def _execute_generate_skill(
     query: str, repo_path: str, context: list[str], metadata: dict,
     *, model_id: str | None = None,
 ) -> dict:
-    """运行上游分析 Skill (repo_background + plan_suggestion) 并汇总结果。"""
+    """运行上游分析 Skill (repo_background + plan_suggestion + chain_analysis) 并汇总结果。"""
     from src.config import get_llm, get_settings
     from src.skills.skill_generator import SkillGeneratorSkill
     try:
@@ -561,9 +563,15 @@ def _render_spec_fallback(spec: dict) -> str:
         ("When NOT to use", "do_not_use_when"),
         ("Required inputs", "required_inputs"),
         ("Required workflow", "workflow_steps"),
+        ("Scene background", "background_knowledge"),
+        ("Business glossary", "business_glossary"),
+        ("Entry points", "scene_entry_points"),
+        ("Typical call chains", "typical_call_chains"),
         ("Key paths", "key_paths"),
         ("Commands", "commands"),
         ("Validation", "validation_checks"),
+        ("Debug checklist", "debug_checklist"),
+        ("Search keywords", "search_keywords"),
         ("Example prompts this skill should handle well", "example_requests"),
         ("Assumptions", "assumptions"),
     ]
@@ -572,8 +580,22 @@ def _render_spec_fallback(spec: dict) -> str:
         if items:
             lines.append(f"## {title}")
             lines.append("")
-            for item in items:
-                lines.append(f"- {item}")
+            if key == "commands":
+                lines.append("```bash")
+                for item in items:
+                    lines.append(str(item))
+                lines.append("```")
+            elif key == "workflow_steps":
+                for idx, item in enumerate(items, start=1):
+                    lines.append(f"### Step {idx}")
+                    lines.append("")
+                    lines.append(str(item))
+                    lines.append("")
+                if lines[-1] == "":
+                    continue
+            else:
+                for item in items:
+                    lines.append(f"- {item}")
             lines.append("")
 
     return "\n".join(lines)
