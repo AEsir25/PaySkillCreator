@@ -58,8 +58,10 @@ class BaseSkill(ABC):
 
         兼容 MiniMax 等模型将结果包装在 {ClassName: {fields}} 的情况。
         """
+        # 部分 provider 要求使用 response_format=json_object 时 messages 中必须含 "json"
+        _sys = system_prompt if "json" in system_prompt.lower() else system_prompt + " 请以 JSON 格式输出结果。"
         messages = [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": _sys},
             {"role": "user", "content": user_message},
         ]
         logger.info("[%s] 调用 LLM (structured output: %s)", self.name, output_schema.__name__)
