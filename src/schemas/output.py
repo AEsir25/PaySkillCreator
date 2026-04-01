@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -36,6 +38,60 @@ class CallStep(BaseModel):
     description: str = Field(default="", description="说明")
 
 
+DiagramType = Literal[
+    "business_overview", "call_chain", "sequence_interaction", "state_transition"
+]
+GraphNodeType = Literal["start", "end", "process", "decision", "page", "result"]
+GraphNodeCategory = Literal["backend", "frontend", "user_action", "external", "result"]
+GraphEdgeType = Literal["transition", "success", "failure", "retry", "timeout"]
+GraphAnnotationType = Literal["note", "rule", "payload", "risk"]
+
+
+class GraphNode(BaseModel):
+    """结构化图节点。"""
+
+    id: str = Field(..., description="节点唯一 ID")
+    label: str = Field(..., description="节点展示名称")
+    node_type: GraphNodeType = Field(..., description="节点类型")
+    category: GraphNodeCategory = Field(default="backend", description="节点分类")
+    description: str = Field(default="", description="节点描述")
+    source_refs: list[str] = Field(default_factory=list, description="节点对应的源码引用")
+
+
+class GraphEdge(BaseModel):
+    """结构化图边。"""
+
+    from_node: str = Field(..., description="起始节点 ID")
+    to_node: str = Field(..., description="目标节点 ID")
+    label: str = Field(default="", description="边文本")
+    edge_type: GraphEdgeType = Field(default="transition", description="边类型")
+    condition: str = Field(default="", description="边条件说明")
+
+
+class GraphAnnotation(BaseModel):
+    """结构化图注释。"""
+
+    id: str = Field(..., description="注释唯一 ID")
+    anchor_node: str = Field(default="", description="注释绑定节点 ID")
+    anchor_edge: str = Field(default="", description="注释绑定边 ID")
+    annotation_type: GraphAnnotationType = Field(default="note", description="注释类型")
+    title: str = Field(default="", description="注释标题")
+    content: str = Field(..., description="注释内容")
+    display_hint: str = Field(default="callout", description="展示提示")
+
+
+class DiagramOutput(BaseModel):
+    """统一图输出。"""
+
+    graph_type: DiagramType = Field(..., description="图类型")
+    title: str = Field(..., description="图标题")
+    summary: str = Field(default="", description="图摘要")
+    nodes: list[GraphNode] = Field(default_factory=list, description="图节点")
+    edges: list[GraphEdge] = Field(default_factory=list, description="图边")
+    annotations: list[GraphAnnotation] = Field(default_factory=list, description="图注释")
+    mermaid_fallback: str = Field(default="", description="Mermaid 降级渲染内容")
+
+
 class ChainAnalysisOutput(BaseModel):
     """Skill 2: 代码逻辑链路分析输出"""
 
@@ -47,6 +103,7 @@ class ChainAnalysisOutput(BaseModel):
     entry_evidence: list[str] = Field(default_factory=list, description="用于定位入口点的证据")
     unresolved_points: list[str] = Field(default_factory=list, description="尚未确认的链路问题")
     search_strategy_used: list[str] = Field(default_factory=list, description="本次追链使用的搜索策略")
+    diagrams: list[DiagramOutput] = Field(default_factory=list, description="结构化图输出")
 
 
 class PlanSuggestionOutput(BaseModel):

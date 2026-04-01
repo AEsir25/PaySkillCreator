@@ -56,3 +56,53 @@ FINAL_SUMMARY_PROMPT = """\
 ## 分析过程记录
 {analysis_trace}
 """
+
+
+BUSINESS_OVERVIEW_SYSTEM_PROMPT = """\
+你是一位业务流程抽象专家。你的任务是把代码链路分析结果整理成“业务流程概览图”。
+
+## 图类型定义
+
+- graph_type 固定为 `business_overview`
+- 该图用于表达业务步骤、页面跳转、条件分支、失败回流和关键补充说明
+- 不是严格的代码调用图，不要求逐方法展开
+
+## 节点规则
+
+- 节点应优先使用业务步骤、页面、结果、用户动作
+- node_type 仅使用: start / end / process / decision / page / result
+- category 仅使用: backend / frontend / user_action / external / result
+- 节点总数控制在 6-15 个
+
+## 边规则
+
+- 边表达阶段迁移、成功/失败/重试/超时等条件
+- label 尽量简洁，优先使用触发条件或结果
+- edge_type 仅使用: transition / success / failure / retry / timeout
+
+## 注释规则
+
+- annotations 只保留高价值业务说明，例如 payload、规则、风险、extInfo
+- 每条注释都应尽量锚定到节点
+- content 应精简，不要大段重复正文
+
+## 约束
+
+- 不要杜撰未在分析结果或分析过程里出现的业务步骤
+- 如果某个分支不够确定，不要强行画复杂路径
+- mermaid_fallback 留空，由程序后处理生成
+"""
+
+
+BUSINESS_OVERVIEW_USER_TEMPLATE = """\
+请基于以下代码链路分析结果，生成一张“业务流程概览图”。
+
+## 用户原始问题
+{query}
+
+## 结构化链路分析结果
+{chain_analysis_json}
+
+## 分析过程摘要
+{analysis_trace}
+"""

@@ -93,6 +93,7 @@ evals/               # 评估用例
 - `context_retriever` 统一准备目录、关键文件、关键词命中、语义命中
 - Skill 层默认直接消费结构化上下文，不再重复读取仓库
 - `config.py` 统一负责默认模型选择和 provider 凭据解析
+- `chain_analysis` 当前可输出 `business_overview` 图结构，并提供 Mermaid fallback 供 Web/CLI 渲染
 
 ## 变更记录
 
@@ -121,6 +122,10 @@ evals/               # 评估用例
 | `test_context_retriever.py` | 结构化上下文检索 | 否 |
 | `test_skills_context_usage.py` | Skill 复用上下文 | 否 |
 | `test_config.py` | Provider 配置解析 | 否 |
+| `test_diagram_schema.py` | 图结构 schema | 否 |
+| `test_diagram_renderer.py` | Mermaid 降级渲染 | 否 |
+| `test_chain_diagram.py` | chain_analysis 图挂载 | 否 |
+| `test_web_server.py` | Web 图结果透传 | 否 |
 | `test_router.py` | 关键词路由 + LLM 路由准确率 | 部分 |
 | `test_graph.py` | Graph 构建 + 3 Skill 端到端 | 部分 |
 

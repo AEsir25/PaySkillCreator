@@ -406,6 +406,7 @@ def _execute_generate_skill(
 
 from src.schemas.output import (
     ChainAnalysisOutput,
+    DiagramOutput,
     PlanSuggestionOutput,
     RepoBackgroundOutput,
     SkillSpecOutput,
@@ -447,7 +448,10 @@ def formatter(state: AgentState) -> dict:
         if schema:
             try:
                 output = schema.model_validate(result)
-                lines.extend(_format_pydantic(output))
+                if isinstance(output, ChainAnalysisOutput):
+                    lines.extend(_format_chain_analysis_output(output))
+                else:
+                    lines.extend(_format_pydantic(output))
             except Exception:
                 lines.extend(_format_dict_fallback(result))
         else:
@@ -493,6 +497,33 @@ def _format_pydantic(output: object) -> list[str]:
             lines.append(str(value))
         lines.append("")
 
+    return lines
+
+
+def _format_chain_analysis_output(output: ChainAnalysisOutput) -> list[str]:
+    lines = _format_pydantic(output.model_copy(update={"diagrams": []}))
+    business_overview = next(
+        (diagram for diagram in output.diagrams if diagram.graph_type == "business_overview"),
+        None,
+    )
+    if business_overview:
+        lines.append("## 业务流程概览图")
+        lines.append("")
+        if business_overview.summary:
+            lines.append(business_overview.summary)
+            lines.append("")
+        if business_overview.mermaid_fallback:
+            lines.append("```mermaid")
+            lines.append(business_overview.mermaid_fallback)
+            lines.append("```")
+            lines.append("")
+        if business_overview.annotations:
+            lines.append("### 图注说明")
+            lines.append("")
+            for annotation in business_overview.annotations:
+                title = f"{annotation.title}: " if annotation.title else ""
+                lines.append(f"- {title}{annotation.content}")
+            lines.append("")
     return lines
 
 

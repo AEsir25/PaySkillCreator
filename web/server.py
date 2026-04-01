@@ -148,6 +148,7 @@ def _run_analysis(req: AnalyzeRequest):
             "formatted_output": output,
             "skill_type": final_state.get("skill_type", ""),
             "metadata": metadata,
+            "diagrams": final_state.get("skill_result", {}).get("diagrams", []),
         })
 
     except Exception as e:

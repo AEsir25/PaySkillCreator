@@ -10,10 +10,12 @@ const modelSelect = $("#modelSelect");
 
 let isAnalyzing = false;
 let currentSkillType = null;
+let mermaidInitialized = false;
 
 // ---- Init ----
 
 async function init() {
+  initMermaid();
   try {
     const res = await fetch("/api/config");
     const cfg = await res.json();
@@ -219,6 +221,7 @@ function handleSSEEvent(event, data, steps, progressEl, contentEl, metaEl) {
       renderSkillMd(contentEl, rawOutput);
     } else {
       setContent(contentEl, rawOutput || "*无结果*");
+      renderDiagrams(contentEl, data.diagrams || []);
     }
 
     const meta = data.metadata || {};
@@ -293,6 +296,17 @@ function setContent(el, markdown) {
   el.innerHTML = marked.parse(markdown);
 }
 
+function initMermaid() {
+  if (window.mermaid && !mermaidInitialized) {
+    window.mermaid.initialize({
+      startOnLoad: false,
+      theme: "dark",
+      securityLevel: "loose",
+    });
+    mermaidInitialized = true;
+  }
+}
+
 function parseFrontmatter(raw) {
   const trimmed = raw.trim();
   if (!trimmed.startsWith("---")) return { frontmatter: null, body: raw };
@@ -350,6 +364,54 @@ function renderMetadata(el, skillType, meta) {
   else if (meta.skill_elapsed_ms) parts.push(`分析耗时: ${(meta.skill_elapsed_ms / 1000).toFixed(1)}s`);
   if (parts.length) {
     el.innerHTML = parts.map((p) => `<span>${p}</span>`).join("");
+  }
+}
+
+function renderDiagrams(contentEl, diagrams) {
+  if (!Array.isArray(diagrams) || !diagrams.length) return;
+
+  const businessOverview = diagrams.find((diagram) => diagram.graph_type === "business_overview");
+  if (!businessOverview || !businessOverview.mermaid_fallback) return;
+
+  const wrapper = document.createElement("section");
+  wrapper.className = "diagram-card";
+  wrapper.innerHTML = `
+    <div class="diagram-header">
+      <div class="diagram-badge">业务流程概览图</div>
+      <h3>${escapeHtml(businessOverview.title || "业务流程概览图")}</h3>
+      ${businessOverview.summary ? `<p>${escapeHtml(businessOverview.summary)}</p>` : ""}
+    </div>
+    <div class="diagram-render" data-mermaid></div>
+  `;
+
+  if (Array.isArray(businessOverview.annotations) && businessOverview.annotations.length) {
+    const notes = document.createElement("div");
+    notes.className = "diagram-notes";
+    notes.innerHTML = businessOverview.annotations
+      .map((annotation) => {
+        const title = annotation.title ? `${escapeHtml(annotation.title)}: ` : "";
+        return `<div class="diagram-note">${title}${escapeHtml(annotation.content)}</div>`;
+      })
+      .join("");
+    wrapper.appendChild(notes);
+  }
+
+  contentEl.prepend(wrapper);
+  renderMermaidInto(wrapper.querySelector("[data-mermaid]"), businessOverview.mermaid_fallback);
+}
+
+async function renderMermaidInto(container, source) {
+  if (!container || !window.mermaid) {
+    if (container) container.innerHTML = `<pre><code>${escapeHtml(source)}</code></pre>`;
+    return;
+  }
+
+  const id = `mermaid-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  try {
+    const { svg } = await window.mermaid.render(id, source);
+    container.innerHTML = svg;
+  } catch {
+    container.innerHTML = `<pre><code>${escapeHtml(source)}</code></pre>`;
   }
 }
 

@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from functools import partial
 
 from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 
-from src.prompts.chain_analysis import FINAL_SUMMARY_PROMPT, SYSTEM_PROMPT
-from src.schemas.output import ChainAnalysisOutput
+from src.graph.diagram_renderer import render_business_overview_to_mermaid
+from src.prompts.chain_analysis import (
+    BUSINESS_OVERVIEW_SYSTEM_PROMPT,
+    BUSINESS_OVERVIEW_USER_TEMPLATE,
+    FINAL_SUMMARY_PROMPT,
+    SYSTEM_PROMPT,
+)
+from src.schemas.output import ChainAnalysisOutput, DiagramOutput
 from src.skills.base import BaseSkill
 from src.tools.code_search import search_code, search_references, search_symbol
 from src.tools.file_reader import read_file
@@ -27,6 +34,9 @@ class ChainAnalysisSkill(BaseSkill):
         ctx = self._normalize_context(context)
         analysis_trace = self._run_react_agent(query, ctx)
         result = self._summarize_to_structured(query, analysis_trace)
+        diagram = self._build_business_overview_diagram(query, analysis_trace, result)
+        if diagram is not None:
+            result.diagrams.append(diagram)
         logger.info(
             "[chain_analysis] 分析完成: 入口=%s, 调用链长度=%d",
             result.entry_point,
@@ -107,3 +117,34 @@ class ChainAnalysisSkill(BaseSkill):
             user_message=user_message,
             output_schema=ChainAnalysisOutput,
         )
+
+    def _build_business_overview_diagram(
+        self,
+        query: str,
+        trace: str,
+        result: ChainAnalysisOutput,
+    ) -> DiagramOutput | None:
+        """从链路分析结果中提炼业务流程概览图。"""
+        max_trace_len = 8000
+        if len(trace) > max_trace_len:
+            trace = trace[:max_trace_len] + "\n... (分析过程过长，已截断)"
+
+        user_message = BUSINESS_OVERVIEW_USER_TEMPLATE.format(
+            query=query,
+            chain_analysis_json=json.dumps(result.model_dump(exclude={"diagrams"}), ensure_ascii=False, indent=2),
+            analysis_trace=trace,
+        )
+
+        try:
+            diagram = self._call_llm_structured(
+                system_prompt=BUSINESS_OVERVIEW_SYSTEM_PROMPT,
+                user_message=user_message,
+                output_schema=DiagramOutput,
+            )
+            if diagram.graph_type != "business_overview":
+                return None
+            diagram.mermaid_fallback = render_business_overview_to_mermaid(diagram)
+            return diagram
+        except Exception as e:
+            logger.warning("[chain_analysis] 业务流程概览图生成失败: %s", e)
+            return None
