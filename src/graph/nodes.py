@@ -12,6 +12,7 @@ import time
 import tiktoken
 from langgraph.types import interrupt
 
+from src.llm.json_prompt import build_json_messages
 from src.schemas.input import RetrievedContext
 from src.state import ANALYSIS_SKILLS, VALID_SKILLS, AgentState
 
@@ -114,10 +115,7 @@ def _llm_route(query: str, *, model_id: str | None = None) -> tuple[str | None, 
     try:
         llm = get_llm(model_id=model_id)
         structured_llm = llm.with_structured_output(RouterOutput)
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": USER_TEMPLATE.format(query=query)},
-        ]
+        messages = build_json_messages(SYSTEM_PROMPT, USER_TEMPLATE.format(query=query))
         result: RouterOutput = structured_llm.invoke(messages)
         if result.skill_type in VALID_SKILLS:
             return result.skill_type, result.reason

@@ -54,6 +54,16 @@ cp .env.example .env
 兼容项：
 - `OPENAI_API_KEY` / `OPENAI_BASE_URL` 仍可作为 DashScope 的兼容变量使用
 - 新环境请优先使用 `.env.example` 中的 Provider 专属变量
+- 部分 provider 在使用结构化输出时要求 prompt 中显式包含 `JSON` 字样，相关兼容逻辑已内置在路由与 Skill structured output 调用中
+- 当前项目内所有 `with_structured_output()` 入口已统一纳入该兼容处理
+
+structured output 开发约束：
+- 不要在业务代码中直接裸调用 `with_structured_output()` 后自行拼 messages
+- 路由类场景统一复用 `src/llm/json_prompt.py` 中的 `build_json_messages()`
+- Skill 类场景统一复用 `BaseSkill._call_llm_structured()`
+- 如果新增 structured output 入口，必须同时满足：
+  - prompt 显式包含 `JSON` 字样
+  - 有对应单测覆盖 provider 兼容性
 
 ## 运行
 
@@ -126,6 +136,9 @@ evals/               # 评估用例
 | `test_diagram_renderer.py` | Mermaid 降级渲染 | 否 |
 | `test_chain_diagram.py` | chain_analysis 图挂载 | 否 |
 | `test_web_server.py` | Web 图结果透传 | 否 |
+| `test_router_structured_output.py` | 路由 JSON 兼容性 | 否 |
+| `test_base_skill_structured_output.py` | Skill structured output JSON 兼容性 | 否 |
+| `test_json_prompt_helper.py` | JSON prompt helper 约束 | 否 |
 | `test_router.py` | 关键词路由 + LLM 路由准确率 | 部分 |
 | `test_graph.py` | Graph 构建 + 3 Skill 端到端 | 部分 |
 

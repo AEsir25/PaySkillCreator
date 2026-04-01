@@ -19,6 +19,8 @@ class RouterOutput(BaseModel):
 SYSTEM_PROMPT = """\
 你是一个任务路由器。根据用户的问题，判断应该使用以下哪个 Skill 来处理。
 
+输出必须是 JSON 对象。
+
 ## 可选 Skill
 
 ### repo_background — 仓库背景知识
@@ -71,5 +73,8 @@ SYSTEM_PROMPT = """\
 4. 如果用户想要生成 SKILL.md / 创建 skill 定义 → generate_skill
 5. 如果不确定，默认选 repo_background
 """
+USER_TEMPLATE = """\
+用户问题: {query}
 
-USER_TEMPLATE = "用户问题: {query}"
+请返回 JSON，字段包含 skill_type 和 reason。
+"""

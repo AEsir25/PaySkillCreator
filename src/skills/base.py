@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from src.llm.json_prompt import build_json_messages, ensure_json_keyword
 from src.schemas.input import RetrievedContext
 
 if TYPE_CHECKING:
@@ -59,11 +60,11 @@ class BaseSkill(ABC):
         兼容 MiniMax 等模型将结果包装在 {ClassName: {fields}} 的情况。
         """
         # 部分 provider 要求使用 response_format=json_object 时 messages 中必须含 "json"
-        _sys = system_prompt if "json" in system_prompt.lower() else system_prompt + " 请以 JSON 格式输出结果。"
-        messages = [
-            {"role": "system", "content": _sys},
-            {"role": "user", "content": user_message},
-        ]
+        messages = build_json_messages(
+            system_prompt,
+            user_message,
+            system_suffix=" 请以 JSON 格式输出结果。",
+        )
         logger.info("[%s] 调用 LLM (structured output: %s)", self.name, output_schema.__name__)
 
         try:
@@ -77,15 +78,12 @@ class BaseSkill(ABC):
             output_schema.model_json_schema(), ensure_ascii=False, indent=None,
         )
         json_system = (
-            system_prompt
+            ensure_json_keyword(system_prompt, "\n\n请以 JSON 格式输出结果。")
             + "\n\n【重要】你必须仅返回纯 JSON 对象，不要包含 Markdown、注释或其他格式。"
             "JSON 必须严格符合以下 Schema:\n"
             + schema_json
         )
-        json_messages = [
-            {"role": "system", "content": json_system},
-            {"role": "user", "content": user_message},
-        ]
+        json_messages = build_json_messages(json_system, user_message)
 
         raw_result = self.llm.invoke(json_messages)
         text = raw_result.content.strip()
