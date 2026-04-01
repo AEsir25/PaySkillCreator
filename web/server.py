@@ -65,11 +65,11 @@ async def get_config():
     settings = get_settings()
     return {
         "repo_path": settings.target_repo_path,
-        "model_name": settings.llm.model_name,
+        "model_name": settings.default_model,
         "max_context_tokens": settings.max_context_tokens,
         "skills": list(VALID_SKILLS),
         "models": get_available_models(),
-        "default_model": get_default_model_id(),
+        "default_model": settings.default_model,
     }
 
 
@@ -96,8 +96,11 @@ def _run_analysis(req: AnalyzeRequest):
 
     try:
         Settings(
-            llm=settings.llm,
             target_repo_path=repo_path,
+            log_level=settings.log_level,
+            max_context_tokens=settings.max_context_tokens,
+            need_human_review=settings.need_human_review,
+            default_model=settings.default_model,
         ).validate()
     except ValueError as e:
         yield _sse("error", {"message": str(e)})

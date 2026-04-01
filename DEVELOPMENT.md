@@ -47,8 +47,13 @@ cp .env.example .env
 ```
 
 必填项：
-- `OPENAI_API_KEY` — LLM API Key
+- 至少一个 Provider 的 API Key，例如 `DASHSCOPE_API_KEY`
+- `MODEL_NAME` — 默认模型 ID
 - `TARGET_REPO_PATH` — 目标分析仓库的本地路径
+
+兼容项：
+- `OPENAI_API_KEY` / `OPENAI_BASE_URL` 仍可作为 DashScope 的兼容变量使用
+- 新环境请优先使用 `.env.example` 中的 Provider 专属变量
 
 ## 运行
 
@@ -74,15 +79,26 @@ cp .env.example .env
 ```
 src/
 ├── main.py          # CLI 入口
-├── config.py        # 全局配置
+├── config.py        # Provider 注册表与统一配置入口
 ├── state.py         # LangGraph State
 ├── graph/           # LangGraph 工作流编排
 ├── skills/          # 3 个 Skill 实现
 ├── tools/           # 代码分析工具
 ├── prompts/         # Prompt 模板
-└── schemas/         # 输入/输出 Schema
+└── schemas/         # 输入/输出 Schema（含结构化 RetrievedContext）
 evals/               # 评估用例
 ```
+
+当前执行职责划分：
+- `context_retriever` 统一准备目录、关键文件、关键词命中、语义命中
+- Skill 层默认直接消费结构化上下文，不再重复读取仓库
+- `config.py` 统一负责默认模型选择和 provider 凭据解析
+
+## 变更记录
+
+- 每次迭代都需要同步更新原有文档，并在 `docs/changes/` 下新增一份变更总结
+- 文件命名格式：`YYYY-MM-DD-简要概括.md`
+- 变更总结建议包含：修改背景、核心改动、测试结果、后续影响
 
 ## 测试
 
@@ -102,6 +118,9 @@ evals/               # 评估用例
 | 测试文件 | 覆盖范围 | 是否需要 LLM |
 |---|---|---|
 | `test_tools.py` | file_reader / code_search / tree_parser | 否 |
+| `test_context_retriever.py` | 结构化上下文检索 | 否 |
+| `test_skills_context_usage.py` | Skill 复用上下文 | 否 |
+| `test_config.py` | Provider 配置解析 | 否 |
 | `test_router.py` | 关键词路由 + LLM 路由准确率 | 部分 |
 | `test_graph.py` | Graph 构建 + 3 Skill 端到端 | 部分 |
 

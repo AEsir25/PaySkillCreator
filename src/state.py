@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Literal, TypedDict
 
+from src.schemas.input import RetrievedContext
+
 
 SkillType = Literal[
     "repo_background", "chain_analysis", "plan_suggestion", "generate_skill"
@@ -27,7 +29,7 @@ class AgentState(TypedDict, total=False):
     skill_type: SkillType
 
     # --- 检索到的仓库上下文 ---
-    retrieved_context: list[str]
+    retrieved_context: RetrievedContext
 
     # --- Skill 执行结果（单 skill 分析） ---
     skill_result: dict

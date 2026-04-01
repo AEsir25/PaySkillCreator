@@ -72,7 +72,6 @@ PROVIDERS: tuple[ProviderDef, ...] = (
     ),
 )
 
-_PROVIDER_MAP: dict[str, ProviderDef] = {p.id: p for p in PROVIDERS}
 _MODEL_MAP: dict[str, tuple[ModelDef, ProviderDef]] = {}
 for _p in PROVIDERS:
     for _m in _p.models:
@@ -121,19 +120,11 @@ def get_default_model_id() -> str:
 
 
 # ---------------------------------------------------------------------------
-# LLMConfig & Settings（向后兼容）
+# Settings
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
-class LLMConfig:
-    api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
-    base_url: str = field(default_factory=lambda: os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"))
-    model_name: str = field(default_factory=lambda: os.getenv("MODEL_NAME", "gpt-4o"))
-
-
-@dataclass(frozen=True)
 class Settings:
-    llm: LLMConfig = field(default_factory=LLMConfig)
     target_repo_path: str = field(
         default_factory=lambda: os.getenv("TARGET_REPO_PATH", "")
     )
@@ -144,9 +135,10 @@ class Settings:
     need_human_review: bool = field(
         default_factory=lambda: os.getenv("NEED_HUMAN_REVIEW", "false").lower() == "true"
     )
+    default_model: str = field(default_factory=get_default_model_id)
 
     def validate(self) -> None:
-        if not self.llm.api_key and not get_available_models():
+        if not get_available_models():
             raise ValueError(
                 "未找到任何 LLM API Key。请在 .env 中至少配置一个 Provider 的 Key，"
                 "如 DASHSCOPE_API_KEY、MINIMAX_API_KEY 或 OPENAI_NATIVE_API_KEY。"
@@ -166,33 +158,24 @@ def get_settings() -> Settings:
 # get_llm — 支持动态模型选择
 # ---------------------------------------------------------------------------
 
-def get_llm(settings: Settings | None = None, model_id: str | None = None):
-    """创建 ChatOpenAI 实例。
-
-    Args:
-        settings: 全局配置（向后兼容，用于无 model_id 时 fallback）
-        model_id: 模型 ID（如 "qwen-plus", "abab6.5s-chat"），
-                  传入时按 Provider 注册表查找凭据。
-    """
+def get_llm(model_id: str | None = None):
+    """创建 ChatOpenAI 实例。"""
     from langchain_openai import ChatOpenAI
 
-    if model_id and model_id in _MODEL_MAP:
-        model_def, provider_def = _MODEL_MAP[model_id]
-        api_key = _resolve_provider_key(provider_def)
-        base_url = _resolve_provider_base_url(provider_def)
-        return ChatOpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            model=model_def.model_name,
-            temperature=0,
-            max_tokens=4096,
-        )
+    resolved_model_id = model_id or get_default_model_id()
+    if resolved_model_id not in _MODEL_MAP:
+        raise ValueError(f"未知模型 ID: {resolved_model_id}")
 
-    s = settings or get_settings()
+    model_def, provider_def = _MODEL_MAP[resolved_model_id]
+    api_key = _resolve_provider_key(provider_def)
+    if not api_key:
+        raise ValueError(f"模型 {resolved_model_id} 所属 Provider 未配置 API Key")
+    base_url = _resolve_provider_base_url(provider_def)
+
     return ChatOpenAI(
-        api_key=s.llm.api_key,
-        base_url=s.llm.base_url,
-        model=s.llm.model_name,
+        api_key=api_key,
+        base_url=base_url,
+        model=model_def.model_name,
         temperature=0,
         max_tokens=4096,
     )

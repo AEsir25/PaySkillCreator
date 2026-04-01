@@ -23,8 +23,9 @@ MAX_REACT_STEPS = 30
 class ChainAnalysisSkill(BaseSkill):
     name = "chain_analysis"
 
-    def execute(self, query: str, context: list[str]) -> dict:
-        analysis_trace = self._run_react_agent(query)
+    def execute(self, query: str, context: dict | None) -> dict:
+        ctx = self._normalize_context(context)
+        analysis_trace = self._run_react_agent(query, ctx)
         result = self._summarize_to_structured(query, analysis_trace)
         logger.info(
             "[chain_analysis] 分析完成: 入口=%s, 调用链长度=%d",
@@ -33,7 +34,7 @@ class ChainAnalysisSkill(BaseSkill):
         )
         return result.model_dump()
 
-    def _run_react_agent(self, query: str) -> str:
+    def _run_react_agent(self, query: str, context: object) -> str:
         """运行 ReAct Agent 进行多轮代码追踪，返回分析过程文本。"""
         tools = self._build_tools()
         system_prompt = SYSTEM_PROMPT.format(repo_path=self.repo_path)
@@ -48,7 +49,7 @@ class ChainAnalysisSkill(BaseSkill):
         logger.info("[chain_analysis] 启动 ReAct Agent, query=%s", query[:100])
 
         result = agent.invoke(
-            {"messages": [HumanMessage(content=self._build_user_message(query))]},
+            {"messages": [HumanMessage(content=self._build_user_message(query, context))]},
             config={"recursion_limit": MAX_REACT_STEPS},
         )
 
@@ -64,11 +65,18 @@ class ChainAnalysisSkill(BaseSkill):
         logger.info("[chain_analysis] ReAct 完成, %d 条消息, trace 长度=%d", len(messages), len(trace))
         return trace
 
-    def _build_user_message(self, query: str) -> str:
+    def _build_user_message(self, query: str, context: object) -> str:
+        ctx = self._normalize_context(context)
+        hints = ctx.keyword_search_hits[:2] + ctx.semantic_search_hits[:1]
+        hint_block = ""
+        if hints:
+            hint_block = "\n\n已检索到的候选线索，请优先从这些结果涉及的文件开始追踪：\n\n" + "\n\n".join(hints)
+
         return (
             f"请分析以下代码的调用链路:\n\n{query}\n\n"
             f"仓库路径: {self.repo_path}\n"
             f"请使用工具逐步追踪调用链路，追踪深度 3-5 层。"
+            f"{hint_block}"
         )
 
     def _build_tools(self) -> list:

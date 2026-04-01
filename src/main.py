@@ -36,11 +36,11 @@ def _resolve_settings(
     settings = get_settings()
     if repo_path:
         settings = Settings(
-            llm=settings.llm,
             target_repo_path=repo_path,
             log_level=settings.log_level,
             max_context_tokens=settings.max_context_tokens,
             need_human_review=review or settings.need_human_review,
+            default_model=settings.default_model,
         )
     return settings
 
@@ -73,7 +73,7 @@ def run(
         console.print(f"[red]配置错误: {e}[/red]")
         raise typer.Exit(code=1)
 
-    model_id = model or get_default_model_id()
+    model_id = model or settings.default_model
 
     console.print(
         Panel(
@@ -141,7 +141,7 @@ def generate_skill(
         console.print(f"[red]配置错误: {e}[/red]")
         raise typer.Exit(code=1)
 
-    model_id = model or get_default_model_id()
+    model_id = model or settings.default_model
 
     console.print(
         Panel(
@@ -194,7 +194,7 @@ def info() -> None:
     """显示当前配置信息"""
     settings = get_settings()
     models = get_available_models()
-    default_model = get_default_model_id()
+    default_model = settings.default_model
 
     model_lines: list[str] = []
     for m in models:

@@ -26,15 +26,16 @@ class SkillGeneratorSkill(BaseSkill):
 
     name = "skill_generator"
 
-    def execute(self, query: str, context: list[str]) -> dict:
+    def execute(self, query: str, context: dict | None) -> dict:
         """运行 repo_background + plan_suggestion + chain_analysis，汇总后生成 SkillSpec。"""
         from src.skills.chain_analysis import ChainAnalysisSkill
         from src.skills.plan_suggestion import PlanSuggestionSkill
         from src.skills.repo_background import RepoBackgroundSkill
 
+        ctx = self._normalize_context(context)
         repo_bg = self._run_sub_skill(RepoBackgroundSkill, query, context)
         plan = self._run_sub_skill(PlanSuggestionSkill, query, context)
-        chain_query = self._build_chain_query(query, context)
+        chain_query = self._build_chain_query(query, ctx.combined_context)
         chain = self._run_sub_skill(ChainAnalysisSkill, chain_query, context)
 
         return {
@@ -45,7 +46,7 @@ class SkillGeneratorSkill(BaseSkill):
         }
 
     def _run_sub_skill(
-        self, skill_cls: type[BaseSkill], query: str, context: list[str]
+        self, skill_cls: type[BaseSkill], query: str, context: dict | None
     ) -> dict:
         try:
             skill = skill_cls(llm=self.llm, repo_path=self.repo_path)
@@ -57,9 +58,10 @@ class SkillGeneratorSkill(BaseSkill):
             return {"error": str(e)}
 
     def generate_spec(
-        self, query: str, analysis_results: dict, context: list[str]
+        self, query: str, analysis_results: dict, context: dict | None
     ) -> dict:
         """基于分析结果生成结构化 Skill 规格。"""
+        ctx = self._normalize_context(context)
         repo_bg = analysis_results.get("repo_background", {})
         plan = analysis_results.get("plan_suggestion", {})
         chain = analysis_results.get("chain_analysis", {})
@@ -67,7 +69,7 @@ class SkillGeneratorSkill(BaseSkill):
         repo_bg_text = self._format_analysis("仓库背景", repo_bg)
         plan_text = self._format_analysis("需求方案", plan)
         chain_text = self._format_analysis("代码链路", chain)
-        context_text = "\n\n".join(context) if context else "(无额外上下文)"
+        context_text = "\n\n".join(ctx.combined_context) if ctx.combined_context else "(无额外上下文)"
 
         user_message = SPEC_USER_TEMPLATE.format(
             user_query=query,

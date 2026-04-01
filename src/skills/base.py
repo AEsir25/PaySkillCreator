@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from src.schemas.input import RetrievedContext
+
 if TYPE_CHECKING:
     from langchain_openai import ChatOpenAI
 
@@ -26,17 +28,25 @@ class BaseSkill(ABC):
         self.repo_path = repo_path
 
     @abstractmethod
-    def execute(self, query: str, context: list[str]) -> dict:
+    def execute(self, query: str, context: RetrievedContext | dict | None) -> dict:
         """执行 Skill 分析。
 
         Args:
             query: 用户问题
-            context: 预检索的仓库上下文列表
+            context: 预检索的仓库上下文
 
         Returns:
             与对应 Pydantic Output Schema 字段一致的 dict
         """
         ...
+
+    @staticmethod
+    def _normalize_context(context: RetrievedContext | dict | None) -> RetrievedContext:
+        if isinstance(context, RetrievedContext):
+            return context
+        if isinstance(context, dict):
+            return RetrievedContext.model_validate(context)
+        return RetrievedContext()
 
     def _call_llm_structured(
         self,

@@ -12,6 +12,7 @@ import time
 import tiktoken
 from langgraph.types import interrupt
 
+from src.schemas.input import RetrievedContext
 from src.state import ANALYSIS_SKILLS, VALID_SKILLS, AgentState
 
 logger = logging.getLogger(__name__)
@@ -21,20 +22,31 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _ENCODING: tiktoken.Encoding | None = None
+_ENCODING_UNAVAILABLE = False
 
 
-def _get_encoding() -> tiktoken.Encoding:
-    global _ENCODING
+def _get_encoding() -> tiktoken.Encoding | None:
+    global _ENCODING, _ENCODING_UNAVAILABLE
+    if _ENCODING_UNAVAILABLE:
+        return None
     if _ENCODING is None:
         try:
             _ENCODING = tiktoken.encoding_for_model("gpt-4o")
         except Exception:
-            _ENCODING = tiktoken.get_encoding("cl100k_base")
+            try:
+                _ENCODING = tiktoken.get_encoding("cl100k_base")
+            except Exception:
+                logger.warning("tiktoken 编码器不可用，token 估算降级为字符近似值")
+                _ENCODING_UNAVAILABLE = True
+                return None
     return _ENCODING
 
 
 def _estimate_tokens(text: str) -> int:
-    return len(_get_encoding().encode(text))
+    enc = _get_encoding()
+    if enc is None:
+        return max(1, len(text) // 4)
+    return len(enc.encode(text))
 
 
 def _truncate_context(parts: list[str], max_tokens: int) -> list[str]:
@@ -47,8 +59,12 @@ def _truncate_context(parts: list[str], max_tokens: int) -> list[str]:
             remaining = max_tokens - used
             if remaining > 200:
                 enc = _get_encoding()
-                encoded = enc.encode(part)[:remaining]
-                result.append(enc.decode(encoded) + "\n... (上下文已截断)")
+                if enc is None:
+                    approx_chars = remaining * 4
+                    result.append(part[:approx_chars] + "\n... (上下文已截断)")
+                else:
+                    encoded = enc.encode(part)[:remaining]
+                    result.append(enc.decode(encoded) + "\n... (上下文已截断)")
             break
         result.append(part)
         used += tokens
@@ -127,6 +143,49 @@ def _keyword_route(query: str) -> str:
 # Node 2: 仓库上下文检索
 # ---------------------------------------------------------------------------
 
+_RETRIEVAL_PLAN: dict[str, dict[str, int | bool]] = {
+    "repo_background": {
+        "dir_depth": 3,
+        "include_key_files": True,
+        "keyword_limit": 0,
+        "semantic_top_k": 0,
+    },
+    "chain_analysis": {
+        "dir_depth": 2,
+        "include_key_files": False,
+        "keyword_limit": 2,
+        "semantic_top_k": 3,
+    },
+    "plan_suggestion": {
+        "dir_depth": 3,
+        "include_key_files": True,
+        "keyword_limit": 2,
+        "semantic_top_k": 3,
+    },
+    "generate_skill": {
+        "dir_depth": 3,
+        "include_key_files": True,
+        "keyword_limit": 3,
+        "semantic_top_k": 5,
+    },
+}
+
+
+def _unique_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        normalized = item.strip()
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(normalized)
+    return result
+
+
 def context_retriever(state: AgentState) -> dict:
     """根据 skill_type 预检索相关仓库上下文，控制总 token 量。"""
     from src.config import get_settings
@@ -141,83 +200,89 @@ def context_retriever(state: AgentState) -> dict:
     max_tokens = settings.max_context_tokens
     if skill_type == "generate_skill":
         max_tokens = int(max_tokens * 1.5)
+    plan = _RETRIEVAL_PLAN.get(skill_type, _RETRIEVAL_PLAN["repo_background"])
 
     logger.info("检索上下文: skill=%s, repo=%s, max_tokens=%d", skill_type, repo_path, max_tokens)
 
-    parts: list[str] = []
+    directory_structure = ""
+    key_files_content = ""
+    keyword_search_hits: list[str] = []
+    semantic_search_hits: list[str] = []
+    request_cache: dict[tuple[str, str], str] = {}
 
-    if skill_type == "repo_background":
-        parts.append(list_directory.invoke({
-            "dir_path": repo_path, "repo_path": repo_path, "max_depth": 3,
-        }))
-        parts.append(read_key_files.invoke({"repo_path": repo_path}))
+    dir_depth = int(plan["dir_depth"])
+    directory_structure = _cached_tool_text(
+        request_cache,
+        "list_directory",
+        f"{repo_path}:{dir_depth}",
+        lambda: list_directory.invoke({
+            "dir_path": repo_path, "repo_path": repo_path, "max_depth": dir_depth,
+        }),
+    )
 
-    elif skill_type == "chain_analysis":
-        parts.append(list_directory.invoke({
-            "dir_path": repo_path, "repo_path": repo_path, "max_depth": 2,
-        }))
-        keywords = _extract_search_terms(query)
-        for kw in keywords[:2]:
-            r = search_code.invoke({
-                "pattern": kw, "repo_path": repo_path, "max_results": 10,
-            })
+    if bool(plan["include_key_files"]):
+        key_files_content = _cached_tool_text(
+            request_cache,
+            "read_key_files",
+            repo_path,
+            lambda: read_key_files.invoke({"repo_path": repo_path}),
+        )
+
+    keyword_limit = int(plan["keyword_limit"])
+    if keyword_limit > 0:
+        keywords = _unique_preserve_order(_extract_search_terms(query))[:keyword_limit]
+        for kw in keywords:
+            r = _cached_tool_text(
+                request_cache,
+                "search_code",
+                kw,
+                lambda kw=kw: search_code.invoke({
+                    "pattern": kw, "repo_path": repo_path, "max_results": 10,
+                }),
+            )
             if "未找到" not in r:
-                parts.append(r)
+                keyword_search_hits.append(r)
+
+    semantic_top_k = int(plan["semantic_top_k"])
+    if semantic_top_k > 0:
         try:
-            sem = semantic_search.invoke({
-                "query": query, "repo_path": repo_path, "top_k": 3,
-            })
+            sem = _cached_tool_text(
+                request_cache,
+                "semantic_search",
+                f"{query}:{semantic_top_k}",
+                lambda: semantic_search.invoke({
+                    "query": query, "repo_path": repo_path, "top_k": semantic_top_k,
+                }),
+            )
             if "未找到" not in sem:
-                parts.append(sem)
+                semantic_search_hits.append(sem)
         except Exception as e:
             logger.warning("语义搜索失败，跳过: %s", e)
 
-    elif skill_type == "plan_suggestion":
-        parts.append(list_directory.invoke({
-            "dir_path": repo_path, "repo_path": repo_path, "max_depth": 3,
-        }))
-        parts.append(read_key_files.invoke({"repo_path": repo_path}))
-        keywords = _extract_search_terms(query)
-        for kw in keywords[:2]:
-            r = search_code.invoke({
-                "pattern": kw, "repo_path": repo_path, "max_results": 10,
-            })
-            if "未找到" not in r:
-                parts.append(r)
-        try:
-            sem = semantic_search.invoke({
-                "query": query, "repo_path": repo_path, "top_k": 3,
-            })
-            if "未找到" not in sem:
-                parts.append(sem)
-        except Exception as e:
-            logger.warning("语义搜索失败，跳过: %s", e)
-
-    elif skill_type == "generate_skill":
-        parts.append(list_directory.invoke({
-            "dir_path": repo_path, "repo_path": repo_path, "max_depth": 3,
-        }))
-        parts.append(read_key_files.invoke({"repo_path": repo_path}))
-        keywords = _extract_search_terms(query)
-        for kw in keywords[:3]:
-            r = search_code.invoke({
-                "pattern": kw, "repo_path": repo_path, "max_results": 10,
-            })
-            if "未找到" not in r:
-                parts.append(r)
-        try:
-            sem = semantic_search.invoke({
-                "query": query, "repo_path": repo_path, "top_k": 5,
-            })
-            if "未找到" not in sem:
-                parts.append(sem)
-        except Exception as e:
-            logger.warning("语义搜索失败，跳过: %s", e)
-
-    context = _truncate_context(parts, max_tokens)
+    parts = [directory_structure, key_files_content, *keyword_search_hits, *semantic_search_hits]
+    context = _truncate_context([part for part in parts if part], max_tokens)
     total_tokens = sum(_estimate_tokens(c) for c in context)
     logger.info("检索完成: %d 段上下文, ~%d tokens", len(context), total_tokens)
-    return {"retrieved_context": context}
+    retrieved_context = RetrievedContext(
+        directory_structure=directory_structure,
+        key_files_content=key_files_content,
+        keyword_search_hits=keyword_search_hits,
+        semantic_search_hits=semantic_search_hits,
+        combined_context=context,
+    )
+    return {"retrieved_context": retrieved_context}
+
+
+def _cached_tool_text(
+    cache: dict[tuple[str, str], str],
+    tool_name: str,
+    cache_key: str,
+    loader,
+) -> str:
+    key = (tool_name, cache_key)
+    if key not in cache:
+        cache[key] = loader()
+    return cache[key]
 
 
 def _extract_search_terms(query: str) -> list[str]:
@@ -263,7 +328,7 @@ def skill_executor(state: AgentState) -> dict:
     skill_type = state.get("skill_type", "repo_background")
     repo_path = state.get("repo_path", "")
     query = state.get("user_query", "")
-    context = state.get("retrieved_context", [])
+    context = state.get("retrieved_context")
     model_id = state.get("model_id")
     metadata = dict(state.get("metadata", {}))
 
@@ -474,7 +539,7 @@ def skill_spec_generator(state: AgentState) -> dict:
     query = state.get("user_query", "")
     repo_path = state.get("repo_path", "")
     analysis_results = state.get("analysis_results", {})
-    context = state.get("retrieved_context", [])
+    context = state.get("retrieved_context")
     model_id = state.get("model_id")
     metadata = dict(state.get("metadata", {}))
 

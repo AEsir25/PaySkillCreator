@@ -34,22 +34,27 @@ uv pip install pytest
 cp .env.example .env
 ```
 
-编辑 `.env` 文件，填入两个**必填项**：
+编辑 `.env` 文件，至少填入一个 Provider 的 API Key，以及目标仓库路径：
 
 ```properties
-# 你的 LLM API Key
-# 支持 OpenAI 原生 / 阿里云百炼 / 任何 OpenAI 兼容接口
-OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
+# 推荐：阿里百炼（DashScope）
+DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxx
+DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 
-# 百炼 OpenAI 兼容接口（如果用 OpenAI 原生则改为 https://api.openai.com/v1）
-OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+# 可选：MiniMax / OpenAI Native
+MINIMAX_API_KEY=
+OPENAI_NATIVE_API_KEY=
 
-# 模型名称（百炼: qwen-plus / qwen-max / qwen-turbo，OpenAI: gpt-4o）
+# 默认模型 ID（必须属于已启用 Provider）
 MODEL_NAME=qwen-plus
 
 # 要分析的目标代码仓库的本地绝对路径
 TARGET_REPO_PATH=/path/to/your/java/project
 ```
+
+兼容说明：
+- `OPENAI_API_KEY` / `OPENAI_BASE_URL` 仍可作为 DashScope 的兼容变量使用
+- 新接入环境建议优先使用 `.env.example` 中的 Provider 专属变量
 
 ### 3. 验证安装
 
@@ -66,8 +71,7 @@ TARGET_REPO_PATH=/path/to/your/java/project
 ```
 ╭──────────────────── 当前配置 ────────────────────╮
 │ 目标仓库: /Users/you/IdeaProjects/your-project    │
-│ 模型: qwen-plus                                   │
-│ API Base: https://dashscope.aliyuncs.com/...       │
+│ 默认模型: qwen-plus                               │
 │ 最大上下文 Tokens: 8000                            │
 │ 人工审核: 关闭                                     │
 ╰──────────────────────────────────────────────────╯
@@ -78,6 +82,16 @@ TARGET_REPO_PATH=/path/to/your/java/project
 ## 两种使用方式
 
 PaySkillCreator 提供 **Web UI** 和 **CLI** 两种使用方式，功能完全等价。
+
+当前默认执行链路为：
+- `skill_router` 负责路由
+- `context_retriever` 统一准备结构化上下文
+- Skill 负责消费上下文并完成分析
+- `formatter` 或 `skill_md_formatter` 负责最终渲染
+
+变更记录约定：
+- 每次迭代除了更新原有文档，还会在 `docs/changes/` 下新增一份变更总结
+- 文件名格式为 `YYYY-MM-DD-简要概括.md`
 
 ### 方式一：Web UI（推荐）
 
@@ -245,7 +259,7 @@ PaySkillCreator 提供 **3 个分析型 Skill** 和 **1 个生成能力**：
 - **下载 SKILL.md** 按钮
 - **复制内容** 按钮
 
-**工作流程**: 自动运行 `repo_background` + `plan_suggestion` 两个上游 Skill → 生成结构化 Skill 规格 → 渲染为完整 SKILL.md
+**工作流程**: 统一预检索上下文 → 自动运行 `repo_background` + `plan_suggestion` + `chain_analysis` 上游 Skill → 生成结构化 Skill 规格 → 渲染为完整 SKILL.md
 
 **输出内容**: Skill 名称 → 功能描述 → 适用场景 → 不适用场景 → 必要输入 → 工作步骤 → 关键路径 → 命令 → 验证方式 → 示例请求 → 前置假设
 
