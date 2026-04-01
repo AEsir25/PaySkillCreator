@@ -206,7 +206,7 @@ PaySkillCreator 提供 **3 个分析型 Skill** 和 **1 个生成能力**：
 
 说明：
 - `business_overview` 是业务语义图，不等于严格的方法调用图
-- 当前 Web 端会优先渲染该图的 Mermaid fallback
+- 当前 Web 端会优先渲染该图的自定义业务流程图，Mermaid 作为降级兜底
 - 后续可在相同结构下继续扩展 `call_chain`、`sequence_interaction`、`state_transition`
 
 ---

@@ -104,6 +104,7 @@ evals/               # 评估用例
 - Skill 层默认直接消费结构化上下文，不再重复读取仓库
 - `config.py` 统一负责默认模型选择和 provider 凭据解析
 - `chain_analysis` 当前可输出 `business_overview` 图结构，并提供 Mermaid fallback 供 Web/CLI 渲染
+- Web 端当前会优先将 `business_overview` 渲染为自定义 SVG 业务流程图，Mermaid 仅作为降级方案
 
 ## 变更记录
 
